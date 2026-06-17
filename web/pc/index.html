@@ -15,16 +15,17 @@
     font-family:"Share Tech Mono","JetBrains Mono",monospace; -webkit-font-smoothing:antialiased;}
   .stage{position:fixed; inset:0; overflow:hidden}
 
-  img.bg{position:absolute; inset:0; width:100%; height:100%;
+  img.bg{position:absolute; inset:0; z-index:0; width:100%; height:100%;
     object-fit:cover; object-position:center; filter:saturate(1.04) contrast(1.03) brightness(.96);}
-  canvas.flow{position:absolute; inset:0; width:100%; height:100%; pointer-events:none}
-
-  .wash{position:absolute; inset:0; pointer-events:none;
+  .wash{position:absolute; inset:0; z-index:1; pointer-events:none;
     background:
-      radial-gradient(120% 90% at 50% 42%, transparent 44%, rgba(10,8,4,.55) 100%),
-      linear-gradient(to bottom, rgba(12,9,4,.45), transparent 24%, transparent 56%, rgba(8,6,3,.85));}
-  .scan{position:absolute; inset:0; pointer-events:none; mix-blend-mode:soft-light; opacity:.45;
+      radial-gradient(120% 90% at 50% 42%, transparent 46%, rgba(10,8,4,.5) 100%),
+      linear-gradient(to bottom, rgba(12,9,4,.42), transparent 24%, transparent 60%, rgba(8,6,3,.58));}
+  .scan{position:absolute; inset:0; z-index:1; pointer-events:none; mix-blend-mode:soft-light; opacity:.45;
     background:repeating-linear-gradient(to bottom, rgba(255,255,255,.06) 0 1px, transparent 1px 3px);}
+  /* energy canvas glows ABOVE the vignette so the typing pond reads */
+  canvas.flow{position:absolute; inset:0; z-index:2; width:100%; height:100%; pointer-events:none}
+  .ghost,.step,.copy{z-index:3}
 
   /* HUD step strip — top center */
   .step{position:absolute; top:clamp(14px,3.4vh,34px); left:50%; transform:translateX(-50%);
@@ -102,13 +103,26 @@
   const beams = [[0.70,0.34],[0.74,0.30],[0.80,0.30],[0.86,0.31],[0.90,0.36],[0.88,0.46],[0.74,0.46]];
   // Keyboard keys (left → right).
   const keys = Array.from({length:10}, (_,i)=>[0.505 + i*0.0235, 0.852 + (i%2?0.006:0)]);
+  // Deterministic "plinky-clickity" pebble schedule for the typing pond.
+  const pebbles = (() => {
+    const out=[]; let t=0.02;
+    while(t < 0.96){
+      out.push({t0:t, k:Math.floor(Math.random()*keys.length),
+                jx:(Math.random()-0.5)*0.028, jy:(Math.random()-0.5)*0.02,   // scatter across the pond
+                max:0.055 + Math.random()*0.05, life:0.30 + Math.random()*0.16});
+      t += 0.022 + Math.random()*0.038;        // fast plinky-clickity cadence over 3s
+    }
+    return out;
+  })();
 
   const phases = [
     {k:'intake', d:1.1, n:'1', t:'reads the live web'},
     {k:'charge', d:0.9, n:'2', t:'its super-AI sees the page'},
     {k:'beam',   d:2.0, n:'3', t:'beams it onto your screen'},
-    {k:'gather', d:0.8, n:'4', t:'you read it & follow links'},
-    {k:'type',   d:1.6, n:'5', t:'…and it types back'},
+    {k:'gather', d:0.7, n:'4', t:'you read it & follow links'},
+    {k:'fall',   d:0.6, n:'5', t:'…and it types back'},
+    {k:'type',   d:3.0, n:'5', t:'…and it types back'},
+    {k:'return', d:0.9, n:'5', t:'…and it types back'},
   ];
   const TOTAL = phases.reduce((s,p)=>s+p.d,0);
 
@@ -188,26 +202,41 @@
       ctx.beginPath(); ctx.moveTo(e[0],e[1]); ctx.lineTo(end[0],end[1]); ctx.stroke(); ctx.globalAlpha=1; });
     blob(sc[0],sc[1], 4+easeOut(lt)*5, 1); sparkles(sc[0],sc[1], 5, 3, lt*4);
   }
-  function drawTypeAndFall(lt){
-    const sc=P(screen), kb=P(kbd);
-    if(lt<0.30){                                            // the pulse falls to the keyboard (with a bounce)
-      const f=lt/0.30, cp=[lerp(screen[0],kbd[0],.5), 0.78];
-      const p=qb(sc,kb,P(cp), f); blob(p[0],p[1], 6-f*1.5, 1);
-    } else {                                                // keys clatter; energy types back up into the robot
-      const u=(lt-0.30)/0.70;
-      const idx=Math.min(keys.length-1, Math.floor(u*keys.length));
-      keys.forEach((k,i)=>{ const kp=P(k); const hit=i===idx?1: (i<idx?0.25:0.12);
-        const bump=i===idx? -4*dpr*Math.sin(((u*keys.length)%1)*Math.PI):0;
-        ctx.globalAlpha=hit; ctx.fillStyle=i<=idx?ORANGE:'#caa86a'; ctx.shadowColor=ORANGE;
-        ctx.shadowBlur=(i===idx?16:0)*dpr;
-        ctx.fillRect(kp[0]-9*dpr, kp[1]-7*dpr+bump, 18*dpr, 12*dpr); ctx.shadowBlur=0; ctx.globalAlpha=1; });
-      const kp=P(keys[idx]); blob(kp[0],kp[1], 5, 1);
-      if(u>0.6){ const r=(u-0.6)/0.4, rp=qb(kb,P(head),P([0.42,0.62]), easeOut(r));
-        blob(rp[0],rp[1], 5, r); }                          // streak back into the robot
+  function drawFall(lt){                                   // the pulse falls from the screen to the keyboard
+    const sc=P(screen), kb=P(kbd), f=easeIn(lt);           // ease-in = gravity
+    const p=qb(sc,kb,P([0.72,0.74]), f); blob(p[0],p[1], 6-f*1.2, 1);
+    if(lt>0.82){ const r=(lt-0.82)/0.18; ctx.globalAlpha=1-r; ctx.strokeStyle=ORANGE;
+      ctx.lineWidth=2*dpr; ctx.shadowColor=ORANGE; ctx.shadowBlur=10*dpr;
+      ctx.beginPath(); ctx.arc(kb[0],kb[1], r*34*dpr,0,7); ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1; }
+  }
+  function drawType(lt){                                    // ~3s: fingers fly, orange pebbles ripple in a pond
+    const hot=new Set();
+    for(const pb of pebbles){ const a=lt-pb.t0; if(a>=0 && a<0.11) hot.add(pb.k); }
+    keys.forEach((k,i)=>{ const kp=P(k), on=hot.has(i);    // keys clatter as they're struck
+      ctx.globalAlpha=on?1:0.15; ctx.fillStyle=on?ORANGE:'#9c8a5e';
+      ctx.shadowColor=ORANGE; ctx.shadowBlur=(on?14:0)*dpr;
+      ctx.fillRect(kp[0]-8.5*dpr, kp[1]-6.5*dpr-(on?2*dpr:0), 17*dpr, 11*dpr);
+      ctx.shadowBlur=0; ctx.globalAlpha=1; });
+    for(const pb of pebbles){ const a=lt-pb.t0; if(a<0 || a>pb.life) continue;
+      const k=keys[pb.k], f=a/pb.life, c=P([k[0]+pb.jx, k[1]+pb.jy]), R=f*pb.max*cover.dw;   // ripple
+      ctx.globalAlpha=(1-f)*0.65; ctx.strokeStyle=ORANGE; ctx.lineWidth=(2.6*(1-f)+0.5)*dpr;
+      ctx.shadowColor=ORANGE; ctx.shadowBlur=9*dpr;
+      ctx.beginPath(); ctx.arc(c[0],c[1],R,0,7); ctx.stroke();
+      if(f<0.55){ ctx.globalAlpha=(0.55-f)*1.1; ctx.beginPath(); ctx.arc(c[0],c[1],R*0.55,0,7); ctx.stroke(); }
+      ctx.shadowBlur=0; ctx.globalAlpha=1;
+      if(f<0.20) blob(c[0],c[1], 3.0*(1-f/0.20)+0.8, 1);   // the splash where the pebble lands
     }
   }
+  function drawReturn(lt){                                  // back up to the robot on a curved line
+    const kb=P(kbd), h=P(head), cp=P([0.40,0.56]), f=easeOut(lt), p=qb(kb,h,cp,f);
+    ctx.globalAlpha=0.32; ctx.strokeStyle=AMBER; ctx.lineWidth=2.2*dpr; ctx.shadowColor=ORANGE; ctx.shadowBlur=10*dpr;
+    ctx.beginPath(); ctx.moveTo(kb[0],kb[1]); ctx.quadraticCurveTo(cp[0],cp[1], p[0],p[1]); ctx.stroke();
+    ctx.shadowBlur=0; ctx.globalAlpha=1;
+    blob(p[0],p[1], 5, 1); sparkles(p[0],p[1], 4, 7, lt*4);
+  }
 
-  const draw = {intake:drawIntake, charge:drawCharge, beam:drawBeam, gather:drawGather, type:drawTypeAndFall};
+  const draw = {intake:drawIntake, charge:drawCharge, beam:drawBeam, gather:drawGather,
+                fall:drawFall, type:drawType, return:drawReturn};
 
   function frame(ms){
     let t=(ms/1000)%TOTAL, ph=phases[0], acc=0;
@@ -218,8 +247,8 @@
     if(ph.k!==curStep){ curStep=ph.k; stepN.textContent=ph.n; stepText.textContent=ph.t; }
     if(!reduce) requestAnimationFrame(frame);
   }
-  function start(){ resize(); frame(reduce?900:performance.now()); }   // reduce → a lit beam frame
-  addEventListener('resize', ()=>{ resize(); if(reduce) frame(900); });
+  function start(){ resize(); frame(reduce?3000:performance.now()); }   // reduce → a lit beam frame
+  addEventListener('resize', ()=>{ resize(); if(reduce) frame(3000); });
   const hero=document.querySelector('img.bg');
   if(hero.complete) start(); else hero.addEventListener('load', start);
 })();
