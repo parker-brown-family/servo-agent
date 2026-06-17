@@ -1,8 +1,9 @@
 # servo-delight — product page design brief
 
-> Status: **vision / not yet built.** This captures the design intent for the
-> public product page so any future builder (or agent) can execute it. Part of
-> the *delightful* family of product pages (terminal + markdown kiosks).
+> Status: **v1 prototype built** at [`site/`](../site/) — `site/index.html`
+> (landing) + `site/pc/index.html` (the kiosk, with the signature pulse
+> animation over the hero). This file is the design intent; the prototype is a
+> starting point to refine and to host on the product subdomain.
 
 ## The hero asset — sets the tone for the whole page
 
