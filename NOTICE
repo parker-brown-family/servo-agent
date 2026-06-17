@@ -1,0 +1,10 @@
+servo-agent
+Copyright 2026 the servo-agent authors
+
+This product includes software developed by the servo-agent authors,
+licensed under the Apache License, Version 2.0.
+
+servo-agent drives the Servo web engine (https://servo.org) over its W3C
+WebDriver interface. Servo is a separate project licensed under the
+Mozilla Public License 2.0; servo-agent does not vendor or redistribute its
+source code.

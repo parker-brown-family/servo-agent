@@ -34,9 +34,15 @@ servo-agent = "servo_agent.cli:main"
 [project.urls]
 Homepage = "https://github.com/parker-brown-family/servo-agent"
 Repository = "https://github.com/parker-brown-family/servo-agent"
+Documentation = "https://github.com/parker-brown-family/servo-agent/tree/main/docs"
+Changelog = "https://github.com/parker-brown-family/servo-agent/blob/main/CHANGELOG.md"
+Issues = "https://github.com/parker-brown-family/servo-agent/issues"
+Demo = "https://servo-agent.brownfamilysports.com"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/servo_agent"]
+# ship the PEP 561 typed marker so downstreams pick up our type hints
+force-include = { "src/servo_agent/py.typed" = "servo_agent/py.typed" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

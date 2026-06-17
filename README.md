@@ -2,9 +2,16 @@
 
 **An agent-controllable browser, built on the [Servo](https://servo.org) engine.**
 
+[![ci](https://github.com/parker-brown-family/servo-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/parker-brown-family/servo-agent/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![live demo](https://img.shields.io/badge/demo-live-ff8c00.svg)](https://servo-agent.brownfamilysports.com)
+
+> **Status:** pre-1.0 / alpha — the API may change. Feedback and contributions welcome.
+
 ![servo-agent — a robot giving life to a web page](web/assets/hero.png)
 
-<sub>Product page ([`web/`](web/)): the **`/pc`** kiosk ("Easy as 1-2-3" animation) + the **`/info`** page (use cases, quickstart).</sub>
+<sub>Live product page → **[servo-agent.brownfamilysports.com](https://servo-agent.brownfamilysports.com)** — the [`/pc`](https://servo-agent.brownfamilysports.com/pc) kiosk ("Easy as 1-2-3" animation) + the [`/info`](https://servo-agent.brownfamilysports.com/info) page (use cases, quickstart).</sub>
 
 `servo-agent` turns a Servo build into a browser an LLM agent can drive — and,
 crucially, _read_. It wraps Servo's built-in **W3C WebDriver** server (a control
@@ -131,7 +138,15 @@ uv run pytest            # unit tests always run; integration auto-skips w/o a b
 uv run ruff check .
 ```
 
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup
+and the workflow. Please be kind ([Code of Conduct](CODE_OF_CONDUCT.md)) and
+report vulnerabilities privately ([SECURITY.md](SECURITY.md)). Changes are logged
+in [CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
-Apache-2.0. Servo itself is a separate project under MPL-2.0; `servo-agent`
-talks to it over WebDriver and does not vendor its code.
+Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Servo itself is a
+separate project under MPL-2.0; `servo-agent` talks to it over WebDriver and does
+not vendor its code.
