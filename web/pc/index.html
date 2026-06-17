@@ -6,117 +6,147 @@
 <title>servo-agent · a browser our agents can read</title>
 <meta name="description" content="An agent-controllable browser, built on the Servo engine. A web engine that gives life to the page.">
 <style>
-  :root{
-    --amber:#e8b25a; --cyan:#5cc8ff; --hot:#bfe9ff; --ink:#0a0a0c;
-    --warm:#1a120b;
-  }
+  :root{ --cyan:#5cc8ff; --hot:#dff4ff; --ink:#0a0a0c; }
   *{box-sizing:border-box}
   html,body{height:100%}
-  body{
-    margin:0; background:var(--ink); color:#f4ead6; overflow:hidden;
-    font-family:"Avenir Next","Segoe UI",system-ui,sans-serif;
-    -webkit-font-smoothing:antialiased;
-  }
+  body{margin:0; background:var(--ink); color:#f4ead6; overflow:hidden;
+    font-family:"Avenir Next","Segoe UI",system-ui,sans-serif; -webkit-font-smoothing:antialiased;}
   .stage{position:fixed; inset:0; overflow:hidden}
 
-  /* the hero key art sets the entire tone */
-  .stage img.bg{
-    position:absolute; inset:0; width:100%; height:100%;
-    object-fit:cover; object-position:center;
-    filter:saturate(1.05) contrast(1.03);
-  }
-  /* warm vignette + legibility wash */
-  .wash{
-    position:absolute; inset:0; pointer-events:none;
+  /* hero key art — sets the tone */
+  img.bg{position:absolute; inset:0; width:100%; height:100%;
+    object-fit:cover; object-position:center; filter:saturate(1.06) contrast(1.03);}
+  /* the spark rides this transparent canvas, glued to the photo */
+  canvas.flow{position:absolute; inset:0; width:100%; height:100%; pointer-events:none}
+
+  .wash{position:absolute; inset:0; pointer-events:none;
     background:
-      radial-gradient(120% 90% at 50% 40%, transparent 40%, rgba(8,6,4,.55) 100%),
-      linear-gradient(to bottom, rgba(8,6,4,.30), transparent 28%, transparent 62%, rgba(6,4,3,.78));
-  }
-  /* CRT scanlines + faint grain */
-  .scan{
-    position:absolute; inset:0; pointer-events:none; mix-blend-mode:soft-light; opacity:.5;
-    background:repeating-linear-gradient(to bottom, rgba(255,255,255,.06) 0 1px, transparent 1px 3px);
-  }
+      radial-gradient(120% 90% at 50% 40%, transparent 42%, rgba(8,6,4,.55) 100%),
+      linear-gradient(to bottom, rgba(8,6,4,.30), transparent 28%, transparent 60%, rgba(6,4,3,.80));}
+  .scan{position:absolute; inset:0; pointer-events:none; mix-blend-mode:soft-light; opacity:.5;
+    background:repeating-linear-gradient(to bottom, rgba(255,255,255,.06) 0 1px, transparent 1px 3px);}
   .grain{position:absolute; inset:0; pointer-events:none; opacity:.06; mix-blend-mode:overlay;
     background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");}
 
-  /* the signature pulse overlay — traces the data's journey */
-  svg.flow{position:absolute; inset:0; width:100%; height:100%; pointer-events:none}
-  .wire{fill:none; stroke:var(--cyan); stroke-width:2.5; opacity:.0}
-  .wire.glow{stroke:url(#grad); stroke-width:3.5; opacity:.55;
-    stroke-dasharray:14 26; filter:url(#soft);
-    animation:dash 2.6s linear infinite}
-  @keyframes dash{to{stroke-dashoffset:-160}}
-  .pulse{fill:var(--hot); filter:url(#bloom)}
-
-  /* copy */
   .copy{position:absolute; left:clamp(20px,5vw,80px); bottom:clamp(20px,6vh,70px);
     max-width:min(46ch,70vw); text-shadow:0 2px 18px rgba(0,0,0,.65)}
-  .mark{font-weight:800; letter-spacing:.5px; font-size:clamp(28px,5.2vw,60px); line-height:1;
-    color:#fff}
+  .mark{font-weight:800; letter-spacing:.5px; font-size:clamp(28px,5.2vw,60px); line-height:1; color:#fff; margin:0}
   .mark b{color:var(--cyan)}
   .tag{margin:.5rem 0 0; font-size:clamp(15px,2vw,22px); color:#f3e7cf; opacity:.95}
-  .cap{margin:.9rem 0 0; font-size:clamp(12px,1.4vw,14px); letter-spacing:.14em;
-    text-transform:uppercase; color:var(--cyan); opacity:.85}
+  .cap{margin:.9rem 0 0; font-size:clamp(12px,1.4vw,14px); letter-spacing:.14em; text-transform:uppercase; color:var(--cyan); opacity:.85}
   .ghost{position:absolute; right:clamp(16px,4vw,46px); top:clamp(14px,3vh,30px);
-    font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:#e9dcc0; opacity:.6;
-    text-decoration:none; border:1px solid rgba(233,220,192,.3); padding:.5em .9em; border-radius:999px}
+    font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:#e9dcc0; opacity:.6; text-decoration:none;
+    border:1px solid rgba(233,220,192,.3); padding:.5em .9em; border-radius:999px}
   .ghost:hover{opacity:.95; border-color:var(--cyan); color:var(--cyan)}
-
-  @media (prefers-reduced-motion: reduce){
-    .wire.glow{animation:none; opacity:.6}
-    .pulse{display:none}              /* rest on a lit, beautiful frame */
-    .wire.lit{opacity:.5}
-  }
 </style>
 </head>
 <body>
   <main class="stage" aria-label="servo-agent — a robot gives life to a web page">
-    <img class="bg" src="../../assets/hero.png" alt="A retro robot cradles a glowing holographic globe and projects it from its eyes onto a vintage personal computer.">
-    <div class="wash"></div>
-
-    <!-- pulse rides the composition: globe → robot → eyes → beam → screen → keyboard → loop -->
-    <svg class="flow" viewBox="0 0 1333 1180" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-      <defs>
-        <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#5cc8ff"/><stop offset="1" stop-color="#bfe9ff"/>
-        </linearGradient>
-        <filter id="soft"><feGaussianBlur stdDeviation="1.1"/></filter>
-        <filter id="bloom" x="-200%" y="-200%" width="500%" height="500%">
-          <feGaussianBlur stdDeviation="6" result="b"/><feMerge>
-          <feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-      </defs>
-
-      <path id="journey"
-        d="M 645 640
-           C 520 730, 420 770, 300 700
-           C 225 655, 235 455, 322 350
-           L 365 285
-           C 560 330, 720 365, 1080 470
-           C 1110 600, 1100 715, 1088 772
-           C 1000 885, 900 962, 822 1002
-           C 705 1045, 640 825, 645 640"
-        fill="none" class="wire glow lit"/>
-
-      <circle class="pulse" r="7" fill="#bfe9ff">
-        <animateMotion dur="6.5s" rotate="auto" repeatCount="indefinite"
-          keyPoints="0;1" keyTimes="0;1" calcMode="linear">
-          <mpath href="#journey"/>
-        </animateMotion>
-        <animate attributeName="r" values="5;9;5" dur="1.3s" repeatCount="indefinite"/>
-      </circle>
-    </svg>
-
-    <div class="scan"></div><div class="grain"></div>
+    <img class="bg" src="../assets/hero.png" alt="A retro robot cradles a glowing holographic globe and projects it from its eyes onto a vintage personal computer.">
+    <canvas class="flow" aria-hidden="true"></canvas>
+    <div class="wash"></div><div class="scan"></div><div class="grain"></div>
 
     <a class="ghost" href="https://github.com/parker-brown-family/servo-agent">View on GitHub →</a>
-
     <div class="copy">
       <h1 class="mark"><b>servo</b>-agent</h1>
       <p class="tag">A browser our agents can read — a web engine that gives life to the page.</p>
       <p class="cap">Follow the current · the live web becomes a page you control</p>
     </div>
   </main>
+
+<script>
+/* "Follow the current" — a traveling-spark pulse, the technique from the
+   markdown-delight /tv "circle of life": a glowing arc() with shadowBlur bloom
+   riding a parametric Bézier path on a modulo-time loop. Here the path is the
+   data's journey through the scene: globe → robot → hologram(eyes) → screen →
+   keyboard → (loop). Coordinates are normalized to the hero's intrinsic size
+   and mapped through the same object-fit:cover transform, so the spark stays
+   glued to the artwork at any viewport. */
+(() => {
+  const cv = document.querySelector('canvas.flow');
+  const ctx = cv.getContext('2d');
+  const HERO_W = 1333, HERO_H = 1180;               // intrinsic size of hero.png
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Journey nodes, normalized (0..1) to the hero composition.
+  const N = {
+    globe:    [0.485, 0.545],   // the live web, in the robot's hand
+    torso:    [0.165, 0.560],   // up into the robot
+    eyes:     [0.275, 0.235],   // the holographic projectors
+    screen:   [0.805, 0.400],   // onto the CRT
+    keyboard: [0.620, 0.850],   // down into the keyboard
+  };
+  // Segments a→b with a control point cp (all normalized), routed to follow the art.
+  const SEG = [
+    { a:N.globe,    cp:[0.33,0.66], b:N.torso    },  // globe → robot (through the hand)
+    { a:N.torso,    cp:[0.12,0.37], b:N.eyes     },  // up the robot to the eyes
+    { a:N.eyes,     cp:[0.54,0.255],b:N.screen   },  // hologram beam → screen
+    { a:N.screen,   cp:[0.95,0.70], b:N.keyboard },  // down the computer → keyboard
+    { a:N.keyboard, cp:[0.52,0.99], b:N.globe    },  // back to the world (loop)
+  ];
+  const PERIOD = 7.6;                                // seconds per full loop
+  const CORE = '#eaffff', GLOW = '#5cc8ff';
+
+  let dpr = 1, cover = null;
+  function resize() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    cv.width = Math.floor(cv.clientWidth * dpr);
+    cv.height = Math.floor(cv.clientHeight * dpr);
+    // object-fit:cover transform (same as the <img>): scale to fill, center-crop.
+    const s = Math.max(cv.width / HERO_W, cv.height / HERO_H);
+    const dw = HERO_W * s, dh = HERO_H * s;
+    cover = { s, ox: (cv.width - dw) / 2, oy: (cv.height - dh) / 2, dw, dh };
+  }
+  const P = (n) => [cover.ox + n[0] * cover.dw, cover.oy + n[1] * cover.dh]; // node → device px
+  function qb(a, b, cp, t) {                          // quadratic Bézier point
+    const u = 1 - t;
+    return [u*u*a[0] + 2*u*t*cp[0] + t*t*b[0], u*u*a[1] + 2*u*t*cp[1] + t*t*b[1]];
+  }
+  const segPt = (seg, t) => { const a=P(seg.a),cp=P(seg.cp),b=P(seg.b); return qb(a,b,cp,t); };
+
+  function drawPath(activeSeg) {
+    ctx.lineCap = 'round';
+    for (let i = 0; i < SEG.length; i++) {
+      const a = P(SEG[i].a), cp = P(SEG[i].cp), b = P(SEG[i].b);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo(cp[0], cp[1], b[0], b[1]);
+      const lit = i === activeSeg;
+      ctx.strokeStyle = lit ? 'rgba(150,220,255,0.55)' : 'rgba(120,200,255,0.14)';
+      ctx.lineWidth = (lit ? 3 : 1.6) * dpr;
+      ctx.shadowColor = GLOW; ctx.shadowBlur = (lit ? 10 : 0) * dpr;
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+  }
+  function spark(x, y, r, alpha) {
+    ctx.globalAlpha = alpha; ctx.fillStyle = CORE;
+    ctx.shadowColor = GLOW; ctx.shadowBlur = 22 * dpr;
+    ctx.beginPath(); ctx.arc(x, y, r * dpr, 0, 7); ctx.fill();
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
+
+  function frame(tMs) {
+    const prog = ((tMs / 1000) % PERIOD) / PERIOD * SEG.length;
+    const seg = Math.floor(prog) % SEG.length, frac = prog - Math.floor(prog);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    drawPath(seg);
+    // a short comet trail, then the bright head
+    for (let k = 6; k >= 1; k--) {
+      const tt = frac - k * 0.03;
+      if (tt < 0) continue;
+      const p = segPt(SEG[seg], tt);
+      spark(p[0], p[1], 4.5 - k * 0.4, 0.10 + (6 - k) * 0.03);
+    }
+    const h = segPt(SEG[seg], frac);
+    const pulse = 6.2 + Math.sin(tMs / 180) * 1.4;     // gentle breathing head
+    spark(h[0], h[1], pulse, 1);
+    if (!reduce) requestAnimationFrame(frame);
+  }
+
+  function start() { resize(); frame(reduce ? 0 : performance.now()); }
+  addEventListener('resize', () => { resize(); if (reduce) frame(0); });
+  const hero = document.querySelector('img.bg');
+  if (hero.complete) start(); else hero.addEventListener('load', start);
+})();
+</script>
 </body>
 </html>

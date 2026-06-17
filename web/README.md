@@ -7,7 +7,7 @@ A self-contained, framework-free prototype of the `servo-agent` product page.
 | `index.html` | `/` | Landing — hero, tagline, CTAs. |
 | `pc/index.html` | `/pc` | The **kiosk**: the hero art + the signature "follow the current" pulse animation (SVG `animateMotion` + flowing `stroke-dashoffset`), with a `prefers-reduced-motion` rest frame. |
 
-Key art: [`../assets/hero.png`](../assets/hero.png). Design intent:
+Key art: [`assets/hero.png`](assets/hero.png). Design intent:
 [`../design/servo-delight-page.md`](../design/servo-delight-page.md).
 
 Preview locally (it's static):

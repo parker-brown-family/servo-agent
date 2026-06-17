@@ -15,5 +15,5 @@ uv.lock
 site/
 
 # keep curated brand assets (render-proof PNGs stay ignored)
-!assets/
-!assets/*.png
+!web/assets/
+!web/assets/*.png

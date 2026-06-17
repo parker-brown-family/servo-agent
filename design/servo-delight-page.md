@@ -7,7 +7,7 @@
 
 ## The hero asset — sets the tone for the whole page
 
-![servo-delight hero](../assets/hero.png)
+![servo-delight hero](../web/assets/hero.png)
 
 This image **is** the brief. Everything below describes how to bring it to life.
 A weathered, hand-built retro robot sits at a wooden desk, cradling a glowing
@@ -82,5 +82,5 @@ read and act on.** The keyboard landing closes the loop (human back in control).
 - Match whichever stack the existing delightful kiosk pages use; if greenfield,
   a single static page (SVG + CSS/JS, optionally Astro) is enough.
 - Reuse the *delightful* shell/footer/nav so this feels native to the family.
-- `assets/hero.png` is the canonical key art — use it as the page background /
-  hero and key the animation overlay to its composition.
+- `web/assets/hero.png` is the canonical key art — use it as the page background
+  / hero and key the animation overlay to its composition.

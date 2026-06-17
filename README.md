@@ -2,7 +2,7 @@
 
 **An agent-controllable browser, built on the [Servo](https://servo.org) engine.**
 
-![servo-agent — a robot giving life to a web page](assets/hero.png)
+![servo-agent — a robot giving life to a web page](web/assets/hero.png)
 
 <sub>Product page prototype: [`web/`](web/) — a landing + a `/pc` kiosk with the "follow the current" animation.</sub>
 
