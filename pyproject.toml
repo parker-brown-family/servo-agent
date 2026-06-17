@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "servo-agent"
+version = "0.1.0"
+description = "An agent-controllable browser over the Servo engine's built-in WebDriver."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "servo-agent contributors" }]
+keywords = ["servo", "webdriver", "browser", "agent", "llm", "mcp", "scraping"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+]
+dependencies = [
+    "requests>=2.31",
+    "trafilatura>=1.8",
+    "markdownify>=0.11",
+    "beautifulsoup4>=4.12",
+    "mcp>=1.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[project.scripts]
+servo-agent = "servo_agent.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/parker-brown-family/servo-agent"
+Repository = "https://github.com/parker-brown-family/servo-agent"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/servo_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires a built servoshell binary (skipped if absent)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

@@ -1,0 +1,42 @@
+site_name: servo-agent
+site_description: An agent-controllable browser over the Servo engine's built-in WebDriver.
+repo_url: https://github.com/parker-brown-family/servo-agent
+repo_name: parker-brown-family/servo-agent
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - toc.integrate
+  palette:
+    - scheme: default
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Quick start: quickstart.md
+  - Architecture: architecture.md
+  - Use cases: use-cases.md
+  - API reference: api.md
+  - Roadmap: roadmap.md
+  - Contributing: contributing.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - tables
+  - toc:
+      permalink: true

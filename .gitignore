@@ -1,0 +1,19 @@
+# generated render proofs / captures
+*.png
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+# uv
+uv.lock
+# docs build
+site/
+
+# keep curated brand assets (render-proof PNGs stay ignored)
+!assets/
+!assets/*.png
