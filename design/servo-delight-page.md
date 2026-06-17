@@ -22,8 +22,9 @@ mood across the page.
 
 | Route | Purpose |
 |---|---|
-| `/` | Product landing page. |
-| `/pc` | The **kiosk/hero scene** (analogous to the delightful terminal/markdown kiosk + the `/tv` page), themed around a **personal computer**. |
+| `/` | Redirects into the kiosk. |
+| `/pc` | The **kiosk/hero scene** (analogous to the delightful terminal/markdown kiosk + the `/tv` page), themed around a **personal computer**. "Easy as 1-2-3". |
+| `/info` | The **main info page** — tactical theme, use cases, quickstart. |
 
 (Hosted on the servo-agent product subdomain.)
 

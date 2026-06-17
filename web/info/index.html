@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>servo-agent · an agent-controllable browser</title>
+<meta name="description" content="An agent-controllable browser, built on the Servo engine. read_page distills the live, rendered DOM to clean markdown an agent can read — ~100–200× smaller than raw HTML.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#191812; --surface:#232119; --fg:#e0dcd2; --muted:#827d6e;
+    --olive:#6b8e23; --olive-hi:#8bb43c; --tag:#a0be5a; --orange:#ff8c00; --ink:#16130a;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0; color:var(--fg); font-family:"Share Tech Mono","JetBrains Mono",monospace;
+    line-height:1.6; -webkit-font-smoothing:antialiased;
+    background:
+      linear-gradient(rgba(107,142,35,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(107,142,35,.035) 1px, transparent 1px),
+      radial-gradient(ellipse at 50% -15%, rgba(139,180,60,.10), transparent 55%),
+      var(--bg);
+    background-size:38px 38px,38px 38px,100% 100%,100% 100%; background-attachment:fixed;}
+  *{scrollbar-width:thin; scrollbar-color:rgba(107,142,35,.6) var(--surface)}
+  ::-webkit-scrollbar{width:12px;height:12px}
+  ::-webkit-scrollbar-thumb{background:rgba(107,142,35,.55); border-radius:8px; border:3px solid var(--surface)}
+  ::-webkit-scrollbar-track{background:var(--surface)}
+  a{color:var(--tag); text-decoration:none} a:hover{color:var(--olive-hi)}
+  .wrap{max-width:1080px; margin:0 auto; padding:0 clamp(18px,4vw,40px)}
+
+  /* header */
+  header{position:sticky; top:0; z-index:50; background:rgba(25,24,18,.72); backdrop-filter:blur(12px);
+    border-bottom:1px solid rgba(107,142,35,.2)}
+  header .wrap{display:flex; align-items:center; justify-content:space-between; padding-top:1rem; padding-bottom:1rem}
+  .brand{font-size:1.05rem; letter-spacing:.06em; color:#fff} .brand b{color:var(--orange); font-weight:400}
+  nav a{margin-left:1.6rem; font-size:.82rem; letter-spacing:.12em; text-transform:uppercase; color:var(--muted)}
+  nav a:hover{color:var(--olive-hi)}
+  @media(max-width:640px){nav a{margin-left:.9rem; font-size:.7rem}}
+
+  /* kicker + headings */
+  .kicker{color:var(--tag); letter-spacing:.32em; text-transform:uppercase; font-size:.72rem; margin:0 0 .8rem}
+  h1{font-weight:400; font-size:clamp(34px,6vw,68px); line-height:1.02; margin:.2rem 0; color:#fff; letter-spacing:.5px}
+  h1 b{color:var(--orange); font-weight:400}
+  h2{font-weight:400; font-size:clamp(24px,3.6vw,38px); letter-spacing:.04em; color:#fff; margin:0}
+  h2 .dim{color:var(--muted)}
+  .num{color:var(--muted); font-size:.9rem; margin-right:.6rem}
+
+  /* hero */
+  .hero{padding:clamp(40px,8vh,90px) 0 clamp(30px,5vh,60px); display:grid; grid-template-columns:1.1fr .9fr; gap:clamp(20px,4vw,48px); align-items:center}
+  @media(max-width:820px){.hero{grid-template-columns:1fr}}
+  .lede{font-size:clamp(15px,1.9vw,19px); color:#d8d0bf; max-width:46ch}
+  .stat{margin-top:1rem; color:var(--tag); font-size:.82rem; letter-spacing:.06em}
+  .cta-row{display:flex; gap:.8rem; flex-wrap:wrap; margin-top:1.8rem}
+  .btn{display:inline-flex; align-items:center; gap:.5em; padding:.8em 1.35em; border-radius:3px;
+    text-transform:uppercase; letter-spacing:.1em; font-size:.82rem; border:1px solid rgba(107,142,35,.5); color:var(--tag)}
+  .btn:hover{border-color:rgba(139,180,60,.9); background:rgba(107,142,35,.1); color:var(--olive-hi)}
+  .btn.primary{color:var(--ink); font-weight:700; border-color:rgba(255,160,40,.8);
+    background:linear-gradient(135deg, rgba(255,140,0,.97), rgba(255,110,40,.88));
+    box-shadow:0 0 16px rgba(255,140,0,.45), inset 0 0 10px rgba(255,255,255,.12)}
+  .btn.primary:hover{transform:translateY(-2px); color:var(--ink); box-shadow:0 0 26px rgba(255,140,0,.6)}
+  .shot{position:relative; display:block; border:1.5px solid rgba(107,142,35,.45); border-radius:3px; overflow:hidden;
+    box-shadow:0 0 30px rgba(107,142,35,.18); clip-path:polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%)}
+  .shot img{width:100%; display:block; filter:saturate(1.05)}
+  .shot::after{content:"▸ ENTER THE KIOSK"; position:absolute; left:0; right:0; bottom:0; padding:.7em 1em;
+    font-size:.72rem; letter-spacing:.18em; color:#ffce8a; background:linear-gradient(to top, rgba(15,12,6,.92), transparent);
+    text-transform:uppercase}
+
+  /* sections */
+  section{padding:clamp(34px,6vh,64px) 0; border-top:1px solid rgba(107,142,35,.14)}
+  .sec-head{display:flex; align-items:baseline; gap:.6rem; margin-bottom:1.8rem}
+
+  /* cards */
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(290px,1fr)); gap:1.1rem}
+  .card{position:relative; background:rgba(35,33,25,.55); border:1.5px solid rgba(107,142,35,.45);
+    box-shadow:0 0 22px rgba(107,142,35,.15), inset 0 0 22px rgba(107,142,35,.05); backdrop-filter:blur(8px);
+    clip-path:polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%); padding:1.3rem 1.3rem 1.5rem;
+    transition:border-color .15s, box-shadow .15s, background .15s}
+  .card::after{content:""; position:absolute; top:0; right:0; width:14px; height:14px;
+    background:linear-gradient(225deg, rgba(255,140,0,.9) 0 50%, transparent 50%); pointer-events:none}
+  .card:hover{border-color:rgba(139,180,60,.8); background:rgba(35,33,25,.72);
+    box-shadow:0 0 30px rgba(107,142,35,.35), inset 0 0 30px rgba(107,142,35,.1)}
+  .card h3{margin:.1rem 0 .5rem; font-weight:400; font-size:1.12rem; color:#fff; letter-spacing:.02em}
+  .card h3 .n{color:var(--orange); margin-right:.5rem}
+  .card p{margin:0 0 .9rem; color:#cfc7b5; font-size:.9rem}
+  .tags{display:flex; flex-wrap:wrap; gap:.4rem}
+  .tag{display:inline-block; padding:.22em .55em; font-size:.62rem; border:1px solid rgba(107,142,35,.4);
+    background:rgba(107,142,35,.12); color:var(--tag); letter-spacing:.1em; text-transform:uppercase; border-radius:2px}
+
+  /* tools + code */
+  .tools{display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.4rem}
+  .tools .tag{font-size:.66rem; padding:.3em .7em}
+  pre{background:rgba(20,18,12,.85); border:1px solid rgba(107,142,35,.35); border-radius:3px;
+    padding:1rem 1.1rem; overflow:auto; font-size:.82rem; color:#d8d0bf; margin:.6rem 0}
+  pre .p{color:var(--orange)} pre .c{color:var(--muted)}
+  .two{display:grid; grid-template-columns:1fr 1fr; gap:1.1rem} @media(max-width:760px){.two{grid-template-columns:1fr}}
+
+  footer{border-top:1px solid rgba(107,142,35,.2); padding:2rem 0 3rem; color:var(--muted); font-size:.8rem}
+  footer .wrap{display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem}
+</style>
+</head>
+<body>
+  <header><div class="wrap">
+    <a class="brand" href="#top"><b>servo</b>-agent</a>
+    <nav>
+      <a href="#use-cases">Use cases</a>
+      <a href="#tools">Tools</a>
+      <a href="#quickstart">Quickstart</a>
+      <a href="/pc/">Kiosk</a>
+      <a href="https://github.com/parker-brown-family/servo-agent">GitHub</a>
+    </nav>
+  </div></header>
+
+  <main class="wrap" id="top">
+    <!-- HERO -->
+    <div class="hero">
+      <div>
+        <p class="kicker">// Agent-controllable browser · built on Servo</p>
+        <h1>A browser our <b>agents</b> can read.</h1>
+        <p class="lede">servo-agent turns a build of the Servo engine into a browser an LLM can drive
+          <em>and read</em>. It wraps Servo's built-in W3C WebDriver, and <code>read_page</code> distills
+          the post-render DOM into clean markdown — so an agent reads content, not tag soup.</p>
+        <p class="stat">read_page · live DOM → clean markdown · ~100–200× smaller than raw HTML</p>
+        <div class="cta-row">
+          <a class="btn primary" href="/pc/">▸ Enter the kiosk</a>
+          <a class="btn" href="#use-cases">See use cases</a>
+          <a class="btn" href="https://github.com/parker-brown-family/servo-agent">View on GitHub</a>
+        </div>
+      </div>
+      <a class="shot" href="/pc/" title="Open the kiosk"><img src="/assets/hero.png" alt="A retro robot beams the live web onto a vintage computer screen."></a>
+    </div>
+
+    <!-- WHY -->
+    <section id="why">
+      <div class="sec-head"><span class="num">01</span><h2>Why <span class="dim">Servo</span></h2></div>
+      <p class="lede" style="max-width:70ch">Most "agent browsing" puppeteers Chromium over CDP: heavyweight, hard to
+        instrument, easy to bot-detect. Servo is a memory-safe, embeddable engine you can <b style="color:var(--olive-hi);font-weight:400">own end to end</b>.
+        Because it already speaks WebDriver, an agent is on familiar ground — and because you control the
+        engine, you can extend it at the source. The payoff is <code>read_page</code>: an agent reads distilled
+        content instead of 200&nbsp;KB of tag soup.</p>
+      <div class="two" style="margin-top:1.2rem">
+        <div class="card"><h3>Wraps W3C WebDriver</h3><p>The standard automation surface LLMs already understand — no bespoke protocol.</p><div class="tags"><span class="tag">open_url</span><span class="tag">find</span><span class="tag">click</span></div></div>
+        <div class="card"><h3>read_page = the value-add</h3><p>Post-render DOM → clean markdown, ~100–200× smaller than raw HTML.</p><div class="tags"><span class="tag">trafilatura</span><span class="tag">noise-strip</span><span class="tag">absolute links</span></div></div>
+      </div>
+    </section>
+
+    <!-- USE CASES -->
+    <section id="use-cases">
+      <div class="sec-head"><span class="num">02</span><h2>Use <span class="dim">cases</span></h2></div>
+      <div class="grid">
+        <div class="card"><h3><span class="n">1</span>Research source-reader</h3><p>Read many sources as clean markdown for multi-source research — more sources per context budget, fewer "page didn't render" misses.</p><div class="tags"><span class="tag">deep-research</span><span class="tag">read_page</span></div></div>
+        <div class="card"><h3><span class="n">2</span>Site QA / pre-deploy</h3><p>Render a page, assert content & links resolve, screenshot — a self-owned browser your CI can call, no SaaS.</p><div class="tags"><span class="tag">verify</span><span class="tag">screenshot</span></div></div>
+        <div class="card"><h3><span class="n">3</span>Page watcher</h3><p>Cron a page, extract a value, alert on change — real rendered pages beat fragile HTTP polling.</p><div class="tags"><span class="tag">schedule</span><span class="tag">eval_js</span></div></div>
+        <div class="card"><h3><span class="n">4</span>Bot-walled fallback</h3><p>When a cheap fetch is blocked or returns an empty JS shell, render it in an engine you own and instrument.</p><div class="tags"><span class="tag">scrape</span><span class="tag">headless</span></div></div>
+        <div class="card"><h3><span class="n">5</span>Structured extraction</h3><p>Pull an HTML table straight into JSON/CSV for a data pipeline.</p><div class="tags"><span class="tag">extract_table</span><span class="tag">extract_links</span></div></div>
+        <div class="card"><h3><span class="n">6</span>Universal "read the web"</h3><p>A primitive for any agent task — distilled markdown instead of dumping raw HTML into context.</p><div class="tags"><span class="tag">mcp</span><span class="tag">read_page</span></div></div>
+      </div>
+    </section>
+
+    <!-- TOOLS -->
+    <section id="tools">
+      <div class="sec-head"><span class="num">03</span><h2>The <span class="dim">tools</span></h2></div>
+      <p class="lede" style="max-width:70ch">Exposed as the <code>servo-agent</code> MCP server — agent-shaped actions over WebDriver:</p>
+      <div class="tools">
+        <span class="tag">open_url</span><span class="tag">read_page</span><span class="tag">find</span>
+        <span class="tag">wait_for_selector</span><span class="tag">click</span><span class="tag">type_text</span>
+        <span class="tag">fill_form</span><span class="tag">scroll</span><span class="tag">extract_links</span>
+        <span class="tag">extract_table</span><span class="tag">eval_js</span><span class="tag">screenshot</span><span class="tag">status</span>
+      </div>
+    </section>
+
+    <!-- QUICKSTART -->
+    <section id="quickstart">
+      <div class="sec-head"><span class="num">04</span><h2>Quick <span class="dim">start</span></h2></div>
+      <div class="two">
+        <div>
+          <p class="kicker" style="letter-spacing:.2em">// install + drive</p>
+<pre><span class="c"># install the harness</span>
+uv tool install servo-agent
+
+<span class="c"># build the engine (sibling Servo fork)</span>
+./mach build -d --media-stack dummy
+
+<span class="c"># prove it end-to-end</span>
+<span class="p">$</span> servo-agent selftest https://news.ycombinator.com</pre>
+        </div>
+        <div>
+          <p class="kicker" style="letter-spacing:.2em">// wire into an agent (MCP)</p>
+<pre><span class="c"># Claude Code</span>
+claude mcp add servo-agent -s user -- \
+  uv run --project /path/to/servo-agent \
+  servo-agent serve
+
+<span class="c"># Codex — ~/.codex/config.toml</span>
+[mcp_servers.servo-agent]
+command = "uv"
+args = ["run","--project","…","servo-agent","serve"]</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="wrap">
+    <span>servo-agent · a web engine that gives life to the page</span>
+    <span><a href="/pc/">Kiosk</a> · <a href="https://github.com/parker-brown-family/servo-agent">GitHub</a> · Apache-2.0</span>
+  </div></footer>
+</body>
+</html>
