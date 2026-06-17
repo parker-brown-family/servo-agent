@@ -4,6 +4,8 @@
 
 ![servo-agent — a robot giving life to a web page](assets/hero.png)
 
+<sub>Product page prototype: [`web/`](web/) — a landing + a `/pc` kiosk with the "follow the current" animation.</sub>
+
 `servo-agent` turns a Servo build into a browser an LLM agent can drive — and,
 crucially, _read_. It wraps Servo's built-in **W3C WebDriver** server (a control
 surface LLMs already understand) and adds the one thing agents actually need:

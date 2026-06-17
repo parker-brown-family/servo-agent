@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>servo-agent · an agent-controllable browser</title>
+<meta name="description" content="An agent-controllable browser, built on the Servo engine. read_page distills the live, rendered DOM to clean markdown an agent can read.">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    color:#f4ead6; background:#0a0a0c; min-height:100%;
+    font-family:"Avenir Next","Segoe UI",system-ui,sans-serif; -webkit-font-smoothing:antialiased;
+    display:grid; place-items:center; position:relative; overflow-x:hidden;
+  }
+  .bg{position:fixed; inset:0; z-index:0}
+  .bg img{width:100%;height:100%;object-fit:cover;filter:saturate(1.05) brightness(.62)}
+  .bg::after{content:"";position:absolute;inset:0;
+    background:radial-gradient(120% 100% at 50% 30%, transparent 35%, rgba(6,4,3,.85));}
+  .scan{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.4;mix-blend-mode:soft-light;
+    background:repeating-linear-gradient(to bottom,rgba(255,255,255,.06) 0 1px,transparent 1px 3px)}
+  main{position:relative;z-index:2;max-width:46rem;padding:6vh 7vw;text-align:center;
+    text-shadow:0 2px 22px rgba(0,0,0,.7)}
+  .mark{font-weight:800;letter-spacing:.5px;font-size:clamp(40px,9vw,86px);line-height:.95;margin:0;color:#fff}
+  .mark b{color:#5cc8ff}
+  .tag{font-size:clamp(17px,2.6vw,24px);margin:1.1rem auto 0;max-width:36ch;color:#f3e7cf}
+  .stat{margin:1.4rem 0 0;font-size:clamp(13px,1.6vw,15px);letter-spacing:.14em;text-transform:uppercase;color:#5cc8ff;opacity:.85}
+  .cta{margin-top:2.2rem;display:flex;gap:.9rem;justify-content:center;flex-wrap:wrap}
+  a.btn{text-decoration:none;padding:.8em 1.4em;border-radius:999px;font-weight:600;font-size:15px;
+    border:1px solid rgba(233,220,192,.35);color:#f4ead6}
+  a.btn.go{background:#5cc8ff;color:#06222f;border-color:#5cc8ff}
+  a.btn:hover{border-color:#5cc8ff;color:#bfe9ff}
+  a.btn.go:hover{color:#06222f;filter:brightness(1.08)}
+  code{background:rgba(0,0,0,.45);padding:.15em .5em;border-radius:6px;color:#bfe9ff;font-size:.85em}
+  .foot{margin-top:2rem;font-size:13px;opacity:.7}
+</style>
+</head>
+<body>
+  <div class="bg"><img src="../assets/hero.png" alt=""></div>
+  <div class="scan"></div>
+  <main>
+    <h1 class="mark"><b>servo</b>-agent</h1>
+    <p class="tag">An agent-controllable browser, built on the Servo engine. A web engine that gives life to the page.</p>
+    <p class="stat">read_page · live DOM → clean markdown · ~100–200× smaller than raw HTML</p>
+    <div class="cta">
+      <a class="btn go" href="pc/">Enter the kiosk →</a>
+      <a class="btn" href="https://github.com/parker-brown-family/servo-agent">View on GitHub</a>
+    </div>
+    <p class="foot">Drive it: <code>servo-agent selftest https://news.ycombinator.com</code></p>
+  </main>
+</body>
+</html>

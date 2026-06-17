@@ -1,7 +1,7 @@
 # servo-delight — product page design brief
 
-> Status: **v1 prototype built** at [`site/`](../site/) — `site/index.html`
-> (landing) + `site/pc/index.html` (the kiosk, with the signature pulse
+> Status: **v1 prototype built** at [`web/`](../web/) — `web/index.html`
+> (landing) + `web/pc/index.html` (the kiosk, with the signature pulse
 > animation over the hero). This file is the design intent; the prototype is a
 > starting point to refine and to host on the product subdomain.
 
