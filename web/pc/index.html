@@ -108,11 +108,11 @@
   // (its visible key tops), not the cropped front edge.
   const web = [0.485,0.545],
         head = [0.165,0.235],      // the round concentric "ear" disc — the atomic charge
-        eyes = [0.310,0.255],      // the bright projector eye lens — beams originate here
+        eyes = [0.310,0.243],      // the bright projector eye lens — beams originate here
         screen = [0.790,0.380],
         kbd = [0.620,0.800];
-  // Beam fan targets across the curved glass.
-  const beams = [[0.69,0.31],[0.74,0.28],[0.80,0.28],[0.86,0.31],[0.90,0.38],[0.87,0.47],[0.72,0.45]];
+  // exactly THREE eye beams that drain the brain energy onto the screen
+  const beams = [[0.74,0.30],[0.87,0.37],[0.80,0.47]];
   // Keyboard keys (left → right), on the visible key tops (above the desktop crop line).
   const keys = Array.from({length:10}, (_,i)=>[0.505 + i*0.0235, 0.800 + (i%2?0.006:0)]);
   // Deterministic "plinky-clickity" pebble schedule for the typing pond.
@@ -129,15 +129,16 @@
 
   // Easy as 1-2-3: type → charge in the head → beam onto the screen → (loop).
   const phases = [
-    {k:'type',   d:3.0, n:'1', t:'Work with your agentic workflow'},
-    {k:'toHead', d:0.9, n:'2', t:'Agent uses servo!'},
-    {k:'charge', d:3.5, n:'2', t:'Agent uses servo!'},
-    {k:'beam',   d:5.0, n:'3', t:'…and reads the live web for you'},
-    {k:'toKbd',  d:0.9, n:'1', t:'Work with your agentic workflow'},
+    {k:'type',      d:3.0, n:'1', t:'Work with your agentic workflow'},
+    {k:'toHead',    d:0.9, n:'2', t:'Agent uses servo!'},
+    {k:'charge',    d:3.0, n:'2', t:'Agent uses servo!'},
+    {k:'brainToEye',d:0.8, n:'2', t:'Agent uses servo!'},
+    {k:'beam',      d:5.0, n:'3', t:'…and reads the live web for you'},
+    {k:'toKbd',     d:1.1, n:'1', t:'Work with your agentic workflow'},
   ];
   const TOTAL = phases.reduce((s,p)=>s+p.d,0);
 
-  let dpr=1, cover=null, curStep='';
+  let dpr=1, cover=null, curStep='', T=0;   // T = global seconds, for continuous/smooth spins
   function resize(){
     dpr = Math.min(devicePixelRatio||1, 2);
     cv.width = Math.floor(cv.clientWidth*dpr); cv.height = Math.floor(cv.clientHeight*dpr);
@@ -172,6 +173,49 @@
       blob(x+Math.cos(ang)*rr, y+Math.sin(ang)*rr, 1.6+Math.sin(t*12+i)*0.6, .8, CORE);
     }
   }
+  const easeInOut=t=>t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+  const popc=n=>{let c=0;while(n){c+=n&1;n>>=1;}return c;};
+
+  // a glowing blue 4-D hypercube (tesseract), genuinely rotated in 4-space then
+  // perspective-projected 4D→3D→2D — the "energy from the world".
+  function tesseract(cx,cy,size,t,alpha){
+    const a=t, b=t*0.66, V=[];
+    for(let i=0;i<16;i++){
+      let x=(i&1?1:-1), y=(i&2?1:-1), z=(i&4?1:-1), w=(i&8?1:-1);
+      const ca=Math.cos(a),sa=Math.sin(a); [x,w]=[x*ca-w*sa, x*sa+w*ca];   // XW rotation
+      const cb=Math.cos(b),sb=Math.sin(b); [y,z]=[y*cb-z*sb, y*sb+z*cb];   // YZ rotation
+      const k4=1/(2.7-w); x*=k4; y*=k4; z*=k4;                            // 4D → 3D
+      const k3=1/(2.7-z);                                                 // 3D → 2D
+      V.push([cx + x*k3*size, cy + y*k3*size]);
+    }
+    ctx.lineCap='round'; ctx.shadowColor='#9fe0ff'; ctx.shadowBlur=22*dpr;
+    ctx.strokeStyle='rgba(195,232,255,'+alpha+')'; ctx.lineWidth=2.8*dpr;
+    for(let i=0;i<16;i++)for(let j=i+1;j<16;j++) if(popc(i^j)===1){
+      ctx.beginPath(); ctx.moveTo(V[i][0],V[i][1]); ctx.lineTo(V[j][0],V[j][1]); ctx.stroke(); }
+    ctx.fillStyle='rgba(240,250,255,'+Math.min(1,alpha+0.25)+')';
+    for(const v of V){ ctx.beginPath(); ctx.arc(v[0],v[1], 3.2*dpr,0,7); ctx.fill(); }
+    ctx.shadowBlur=0;
+  }
+
+  // the AI "brain" atom — triple orbital rings + radiating shine + nucleus.
+  // R = size, I = intensity 0..1 (so it can grow while charging and DRAIN to 0).
+  function drawAtom(hx,hy,R,I,t){
+    ctx.save(); ctx.translate(hx,hy);
+    for(let i=0;i<3;i++){ ctx.save(); ctx.rotate(i*Math.PI/3 + t*1.3 + Math.sin(t*4+i)*0.15);
+      ctx.globalAlpha=0.4+0.55*I; ctx.strokeStyle=ORANGE; ctx.lineWidth=(2.2+I*3)*dpr;
+      ctx.shadowColor=ORANGE; ctx.shadowBlur=(16+I*48)*dpr;
+      ctx.beginPath(); ctx.ellipse(0,0,R,R*0.46,0,0,7); ctx.stroke(); ctx.restore(); }
+    ctx.restore(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+    for(let i=0;i<16;i++){ const a=(i/16)*Math.PI*2 + t*0.6;
+      const len=(R*0.30 + (0.5+0.5*Math.sin(t*24+i))*R*0.45)*(0.55+I);
+      ctx.globalAlpha=0.3+0.5*I; ctx.strokeStyle=i%2?CORE:AMBER; ctx.lineWidth=(1.4+I*1.8)*dpr;
+      ctx.shadowColor=ORANGE; ctx.shadowBlur=(10+I*32)*dpr;
+      ctx.beginPath(); ctx.moveTo(hx+Math.cos(a)*R*0.26, hy+Math.sin(a)*R*0.26);
+      ctx.lineTo(hx+Math.cos(a)*(R*0.26+len), hy+Math.sin(a)*(R*0.26+len)); ctx.stroke(); }
+    ctx.shadowBlur=0; ctx.globalAlpha=1;
+    blob(hx,hy, Math.max(2, 3 + I*22 + Math.sin(t*26)*(1+I*5)), 1);
+    sparkles(hx,hy, R*0.3+4, 2, t*7);
+  }
 
   function drawToHead(lt){                                  // energy rides keyboard → robot head
     const kb=P(kbd), h=P(head), cp=P([0.40,0.56]), f=easeOut(lt), p=qb(kb,h,cp,f);
@@ -180,76 +224,71 @@
     ctx.shadowBlur=0; ctx.globalAlpha=1;
     blob(p[0],p[1], 5, 1); sparkles(p[0],p[1], 4, 7, lt*4);
   }
-  function drawCharge(lt){              // STEP 2 — an ATOM charges in the head: triple rings + shine + nucleus, ~3× intensity
-    const h=P(head), g=P(web), I=easeIn(lt);               // intensity ramp 0→1
-    const R=(16 + I*52 + Math.sin(lt*30)*(3+I*7))*dpr;     // emblem radius — grows BIG (≈3× prior)
-    // faint feed from the globe — the agent reading the live web while it charges
-    ctx.globalAlpha=0.16+0.14*Math.sin(lt*14); ctx.strokeStyle=AMBER; ctx.lineWidth=2*dpr;
-    ctx.shadowColor=ORANGE; ctx.shadowBlur=8*dpr;
-    const cf=P([0.32,0.42]); ctx.beginPath(); ctx.moveTo(g[0],g[1]);
-    ctx.quadraticCurveTo(cf[0],cf[1], h[0],h[1]); ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1;
-
-    // three tilted orbital rings (the atom), rotating + brightening as it charges
-    ctx.save(); ctx.translate(h[0],h[1]);
-    for(let i=0;i<3;i++){
-      ctx.save(); ctx.rotate(i*Math.PI/3 + lt*1.3 + Math.sin(lt*4+i)*0.15);
-      ctx.globalAlpha=0.4+0.55*I; ctx.strokeStyle=ORANGE; ctx.lineWidth=(2.2+I*3)*dpr;
-      ctx.shadowColor=ORANGE; ctx.shadowBlur=(16+I*48)*dpr;        // ≈3× glow
-      ctx.beginPath(); ctx.ellipse(0,0, R, R*0.46, 0, 0, 7); ctx.stroke();
-      ctx.restore();
-    }
-    ctx.restore(); ctx.shadowBlur=0; ctx.globalAlpha=1;
-
-    // radiating "shine" spikes bursting from the nucleus
-    const spikes=16;
-    for(let i=0;i<spikes;i++){
-      const a=(i/spikes)*Math.PI*2 + lt*0.6;
-      const len=(R*0.30 + (0.5+0.5*Math.sin(lt*24+i))*R*0.45)*(0.55+I);
-      ctx.globalAlpha=0.3+0.5*I; ctx.strokeStyle=i%2?CORE:AMBER; ctx.lineWidth=(1.4+I*1.8)*dpr;
-      ctx.shadowColor=ORANGE; ctx.shadowBlur=(10+I*32)*dpr;
-      ctx.beginPath(); ctx.moveTo(h[0]+Math.cos(a)*R*0.26, h[1]+Math.sin(a)*R*0.26);
-      ctx.lineTo(h[0]+Math.cos(a)*(R*0.26+len), h[1]+Math.sin(a)*(R*0.26+len)); ctx.stroke();
-    }
-    ctx.shadowBlur=0; ctx.globalAlpha=1;
-
-    // bright nucleus — throbs and grows dramatically toward the beam (≈3× prior)
-    const core=7 + I*22 + Math.sin(lt*26)*(2+I*6);
-    blob(h[0],h[1], core, 1); sparkles(h[0],h[1], core*0.9, 2, lt*7);
+  function drawCharge(lt){              // STEP 2 — the world's tesseract energy charges the brain atom
+    const h=P(head), g=P(web), I=easeIn(lt);
+    const R=(16 + I*52 + Math.sin(lt*30)*(3+I*7))*dpr;
+    // a big glowing blue 4-D tesseract spinning over the globe = the energy of the world
+    const ts = cover.dw*0.135*(0.92+0.08*Math.sin(T*3)), tcy=g[1]-cover.dh*0.05;
+    tesseract(g[0], tcy, ts, T*1.7, 0.7+0.18*Math.sin(T*6));
+    // a flowing dashed stream draining the tesseract's energy into the brain
+    ctx.globalAlpha=0.5+0.2*Math.sin(T*18); ctx.strokeStyle=AMBER; ctx.lineWidth=2.6*dpr;
+    ctx.setLineDash([3*dpr,10*dpr]); ctx.lineDashOffset=-T*70*dpr;
+    ctx.shadowColor=ORANGE; ctx.shadowBlur=10*dpr;
+    const cf=P([0.33,0.40]); ctx.beginPath(); ctx.moveTo(g[0]-ts*0.5, tcy);
+    ctx.quadraticCurveTo(cf[0],cf[1], h[0],h[1]); ctx.stroke();
+    ctx.setLineDash([]); ctx.shadowBlur=0; ctx.globalAlpha=1;
+    // the brain atom charging up
+    drawAtom(h[0],h[1], R, I, T);
   }
-  function drawBeam(lt){                                    // STEP 3 — 5s: beams travel out, hologram holds, then gathers
+  function drawBrainToEye(lt){          // the charged brain energy slides from the ear over to the eyes
+    const ear=P(head), eye=P(eyes), f=easeInOut(lt);
+    const arc=Math.sin(f*Math.PI)*cover.dh*0.025;
+    for(let k=5;k>=1;k--){ const ff=Math.max(0,f-k*0.05);
+      const tx=lerp(ear[0],eye[0],ff), ty=lerp(ear[1],eye[1],ff)-Math.sin(ff*Math.PI)*cover.dh*0.025;
+      blob(tx,ty, 7-k, 0.10*(6-k)); }
+    drawAtom(lerp(ear[0],eye[0],f), lerp(ear[1],eye[1],f)-arc, (28 - f*8)*dpr, 1-0.15*f, T);
+  }
+  function drawBeam(lt){                  // STEP 3 — 3 eye beams DRAIN the brain energy onto the screen
     const e=P(eyes), sc=P(screen);
-    let ext, hold;
-    if(lt<0.18){ ext=easeOut(lt/0.18); hold=0; }            // beams travel out (caption lingers here)
-    else if(lt<0.86){ ext=1; hold=1; }                      // hologram holds on the glass
-    else { ext=1-easeIn((lt-0.86)/0.14); hold=ext; }        // gather back into a pulse on the screen
+    const ext = lt<0.14 ? easeOut(lt/0.14) : 1;             // beams shoot out, then hold
+    const drain = Math.max(0, 1-lt);                        // brain energy depletes 1 → 0
+    const fill = lt;                                        // the screen orb fills 0 → 1
     ctx.lineCap='round';
-    beams.forEach((tg,i)=>{ const t2=P(tg), end=mix(e,t2, ext*(0.92+0.08*Math.sin(lt*16+i)));
-      const flick=0.6+0.4*Math.abs(Math.sin(lt*13+i*1.3));
-      ctx.globalAlpha=ext*flick; ctx.strokeStyle=AMBER; ctx.lineWidth=2.6*dpr;
+    beams.forEach((tg,i)=>{ const t2=P(tg), end=mix(e,t2,ext);
+      const flick=0.65+0.35*Math.abs(Math.sin(T*12+i*2));
+      ctx.globalAlpha=flick; ctx.strokeStyle=AMBER; ctx.lineWidth=3.2*dpr;
       ctx.shadowColor=ORANGE; ctx.shadowBlur=16*dpr;
       ctx.beginPath(); ctx.moveTo(e[0],e[1]); ctx.lineTo(end[0],end[1]); ctx.stroke();
-      blob(end[0],end[1], 2.4, ext*flick, AMBER);
+      blob(end[0],end[1], 2.6, flick, AMBER);
+      const pp=mix(e,end, (T*0.55 + i*0.33)%1); blob(pp[0],pp[1], 2.6, 0.9, CORE);   // energy packet draining out
     });
     ctx.shadowBlur=0; ctx.globalAlpha=1;
-    if(hold>0){                                             // hologram bloom + a render scan-line on the glass
-      ctx.globalAlpha=0.20*hold*(0.7+0.3*Math.sin(lt*10)); ctx.fillStyle=ORANGE;
-      ctx.shadowColor=ORANGE; ctx.shadowBlur=40*dpr;
-      ctx.beginPath(); ctx.ellipse(sc[0],sc[1], cover.dw*0.13, cover.dh*0.14, 0,0,7); ctx.fill();
-      ctx.shadowBlur=0;
-      const sy=sc[1]-cover.dh*0.12 + ((lt*2.2)%1)*cover.dh*0.24;
-      ctx.globalAlpha=0.45*hold; ctx.strokeStyle=CORE; ctx.lineWidth=2*dpr;
-      ctx.beginPath(); ctx.moveTo(sc[0]-cover.dw*0.11, sy); ctx.lineTo(sc[0]+cover.dw*0.11, sy); ctx.stroke();
-      ctx.globalAlpha=1;
-    }
-    blob(e[0],e[1], 4.5, 1);                                 // source lit at the eyes
-    if(lt>=0.86) blob(sc[0],sc[1], 3+(1-ext)*5, 1);          // pulse coalesces on the screen
+    // hologram on the glass grows as the brain drains
+    ctx.globalAlpha=0.22*fill*(0.7+0.3*Math.sin(T*10)); ctx.fillStyle=ORANGE;
+    ctx.shadowColor=ORANGE; ctx.shadowBlur=40*dpr;
+    ctx.beginPath(); ctx.ellipse(sc[0],sc[1], cover.dw*0.13*fill+8*dpr, cover.dh*0.14*fill+8*dpr,0,0,7); ctx.fill();
+    ctx.shadowBlur=0;
+    const sy=sc[1]-cover.dh*0.12 + ((T*0.9)%1)*cover.dh*0.24;
+    ctx.globalAlpha=0.45*fill; ctx.strokeStyle=CORE; ctx.lineWidth=2*dpr;
+    ctx.beginPath(); ctx.moveTo(sc[0]-cover.dw*0.11, sy); ctx.lineTo(sc[0]+cover.dw*0.11, sy); ctx.stroke();
+    ctx.globalAlpha=1;
+    if(drain>0.03) drawAtom(e[0],e[1], (8 + drain*24)*dpr, drain, T);   // the DRAINING atom at the eyes
+    blob(sc[0],sc[1], 3 + fill*7, 1);                                   // the orb coalescing on the screen
   }
-  function drawToKbd(lt){                                    // the pulse falls screen → keyboard, ready to type
-    const sc=P(screen), kb=P(kbd), f=easeIn(lt);
-    const p=qb(sc,kb,P([0.72,0.74]), f); blob(p[0],p[1], 6-f*1.2, 1);
-    if(lt>0.82){ const r=(lt-0.82)/0.18; ctx.globalAlpha=1-r; ctx.strokeStyle=ORANGE;
-      ctx.lineWidth=2*dpr; ctx.shadowColor=ORANGE; ctx.shadowBlur=10*dpr;
-      ctx.beginPath(); ctx.arc(kb[0],kb[1], r*34*dpr,0,7); ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1; }
+  function drawToKbd(lt){                 // STEP back to 1 — the screen orb floats down and disperses into the keys
+    const sc=P(screen), kb=P(kbd);
+    if(lt<0.5){                                            // float gently down
+      const f=easeIn(lt/0.5), p=qb(sc,kb,P([0.72,0.62]), f);
+      blob(p[0],p[1], 7-f*1.5, 1); sparkles(p[0],p[1], 4, 3, T*4);
+    } else {                                               // burst and ripple across the keys
+      const u=(lt-0.5)/0.5; blob(kb[0],kb[1], 6*(1-u)+1, 1);
+      keys.forEach((k)=>{ const kp=P(k), d=Math.abs(kp[0]-kb[0])/(cover.dw*0.16);
+        const a=u - d*0.4; if(a<0) return; const f=Math.min(1,a/0.6), R=f*0.05*cover.dw;
+        ctx.globalAlpha=(1-f)*0.6; ctx.strokeStyle=ORANGE; ctx.lineWidth=(2.4*(1-f)+0.4)*dpr;
+        ctx.shadowColor=ORANGE; ctx.shadowBlur=8*dpr;
+        ctx.beginPath(); ctx.arc(kp[0],kp[1], R,0,7); ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+        if(f<0.3) blob(kp[0],kp[1], 2.4*(1-f/0.3)+0.6, 1); });
+    }
   }
   function drawType(lt){                                    // ~3s: fingers fly, orange pebbles ripple in a pond
     const hot=new Set();
@@ -270,9 +309,11 @@
     }
   }
 
-  const draw = {type:drawType, toHead:drawToHead, charge:drawCharge, beam:drawBeam, toKbd:drawToKbd};
+  const draw = {type:drawType, toHead:drawToHead, charge:drawCharge,
+                brainToEye:drawBrainToEye, beam:drawBeam, toKbd:drawToKbd};
 
   function frame(ms){
+    T = ms/1000;
     let t=(ms/1000)%TOTAL, ph=phases[0], acc=0;
     for(const p of phases){ if(t < acc+p.d){ ph=p; break;} acc+=p.d; }
     const lt=(t-acc)/ph.d;
