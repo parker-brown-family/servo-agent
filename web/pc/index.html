@@ -15,8 +15,12 @@
     font-family:"Share Tech Mono","JetBrains Mono",monospace; -webkit-font-smoothing:antialiased;}
   .stage{position:fixed; inset:0; overflow:hidden}
 
-  img.bg{position:absolute; inset:0; z-index:0; width:100%; height:100%;
-    object-fit:cover; object-position:center; filter:saturate(1.04) contrast(1.03) brightness(.96);}
+  /* the hero is drawn INTO a canvas with the exact same cover-transform the
+     animation uses — so photo + energy stay pixel-aligned at every resolution,
+     with no dependence on the browser's object-fit. */
+  #hero{display:none}
+  canvas.bg{position:absolute; inset:0; z-index:0; width:100%; height:100%;
+    filter:saturate(1.04) contrast(1.03) brightness(.96);}
   .wash{position:absolute; inset:0; z-index:1; pointer-events:none;
     background:
       radial-gradient(120% 90% at 50% 42%, transparent 46%, rgba(10,8,4,.5) 100%),
@@ -64,9 +68,10 @@
 </head>
 <body>
   <main class="stage" aria-label="servo-agent — a robot reads the live web and beams it onto a screen">
-    <img class="bg" src="/assets/hero.png" alt="A retro robot cradles a glowing holographic globe and beams it from its eyes onto a vintage personal computer.">
-    <canvas class="flow" aria-hidden="true"></canvas>
+    <img id="hero" src="/assets/hero.png" alt="A retro robot cradles a glowing holographic globe and beams it from its eyes onto a vintage personal computer.">
+    <canvas class="bg" id="bg" aria-hidden="true"></canvas>
     <div class="wash"></div><div class="scan"></div>
+    <canvas class="flow" aria-hidden="true"></canvas>
 
     <a class="ghost" href="https://github.com/parker-brown-family/servo-agent">View on GitHub →</a>
     <div class="step" id="step"><span class="n">1</span> <span><b id="stepText">Work with your agentic workflow</b></span></div>
@@ -90,25 +95,33 @@
    transform, so everything stays glued to the artwork. */
 (() => {
   const cv = document.querySelector('canvas.flow'), ctx = cv.getContext('2d');
+  const bg = document.getElementById('bg'), bgctx = bg.getContext('2d');
+  const hero = document.getElementById('hero');
   const stepN = document.querySelector('#step .n'), stepText = document.getElementById('stepText');
   const HERO_W = 1333, HERO_H = 1180;
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const CORE = '#fff0cf', AMBER = '#ffd089', ORANGE = '#ff8c00';
 
-  // Scene nodes (normalized 0..1 of the hero composition).
-  const web = [0.485,0.545], head = [0.275,0.205], eyes = [0.305,0.250],
-        screen = [0.805,0.400], kbd = [0.620,0.852];
+  // Scene nodes (normalized 0..1 of the hero art). Calibrated to features so the
+  // cover-mapping keeps them glued at every resolution. NB: wide/desktop viewports
+  // crop the very top & bottom (object-fit:cover), so the keyboard sits at ~0.82
+  // (its visible key tops), not the cropped front edge.
+  const web = [0.485,0.545],
+        head = [0.165,0.235],      // the round concentric "ear" disc — the atomic charge
+        eyes = [0.310,0.255],      // the bright projector eye lens — beams originate here
+        screen = [0.790,0.380],
+        kbd = [0.620,0.800];
   // Beam fan targets across the curved glass.
-  const beams = [[0.70,0.34],[0.74,0.30],[0.80,0.30],[0.86,0.31],[0.90,0.36],[0.88,0.46],[0.74,0.46]];
-  // Keyboard keys (left → right).
-  const keys = Array.from({length:10}, (_,i)=>[0.505 + i*0.0235, 0.852 + (i%2?0.006:0)]);
+  const beams = [[0.69,0.31],[0.74,0.28],[0.80,0.28],[0.86,0.31],[0.90,0.38],[0.87,0.47],[0.72,0.45]];
+  // Keyboard keys (left → right), on the visible key tops (above the desktop crop line).
+  const keys = Array.from({length:10}, (_,i)=>[0.505 + i*0.0235, 0.800 + (i%2?0.006:0)]);
   // Deterministic "plinky-clickity" pebble schedule for the typing pond.
   const pebbles = (() => {
     const out=[]; let t=0.02;
     while(t < 0.96){
       out.push({t0:t, k:Math.floor(Math.random()*keys.length),
-                jx:(Math.random()-0.5)*0.028, jy:(Math.random()-0.5)*0.02,   // scatter across the pond
-                max:0.055 + Math.random()*0.05, life:0.30 + Math.random()*0.16});
+                jx:(Math.random()-0.5)*0.028, jy:(Math.random()-0.62)*0.018,  // scatter, biased up onto the keys
+                max:0.045 + Math.random()*0.04, life:0.30 + Math.random()*0.16});
       t += 0.022 + Math.random()*0.038;        // fast plinky-clickity cadence over 3s
     }
     return out;
@@ -128,8 +141,15 @@
   function resize(){
     dpr = Math.min(devicePixelRatio||1, 2);
     cv.width = Math.floor(cv.clientWidth*dpr); cv.height = Math.floor(cv.clientHeight*dpr);
+    bg.width = cv.width; bg.height = cv.height;
     const s = Math.max(cv.width/HERO_W, cv.height/HERO_H), dw=HERO_W*s, dh=HERO_H*s;
     cover = {ox:(cv.width-dw)/2, oy:(cv.height-dh)/2, dw, dh};
+    drawBg();
+  }
+  function drawBg(){   // the photo, drawn with the SAME cover transform as the animation
+    if(!cover || !hero.naturalWidth) return;
+    bgctx.clearRect(0,0,bg.width,bg.height);
+    bgctx.drawImage(hero, cover.ox, cover.oy, cover.dw, cover.dh);
   }
   const P = n => [cover.ox+n[0]*cover.dw, cover.oy+n[1]*cover.dh];
   const lerp=(a,b,t)=>a+(b-a)*t, mix=(p,q,t)=>[lerp(p[0],q[0],t),lerp(p[1],q[1],t)];
@@ -160,31 +180,41 @@
     ctx.shadowBlur=0; ctx.globalAlpha=1;
     blob(p[0],p[1], 5, 1); sparkles(p[0],p[1], 4, 7, lt*4);
   }
-  function drawCharge(lt){                                  // STEP 2 — builds in the head for 3.5s, dramatically
-    const h=P(head), g=P(web);
-    // a faint feed from the globe — the agent reading the live web while it charges
-    ctx.globalAlpha=0.16+0.12*Math.sin(lt*14); ctx.strokeStyle=AMBER; ctx.lineWidth=2*dpr;
+  function drawCharge(lt){              // STEP 2 — an ATOM charges in the head: triple rings + shine + nucleus, ~3× intensity
+    const h=P(head), g=P(web), I=easeIn(lt);               // intensity ramp 0→1
+    const R=(16 + I*52 + Math.sin(lt*30)*(3+I*7))*dpr;     // emblem radius — grows BIG (≈3× prior)
+    // faint feed from the globe — the agent reading the live web while it charges
+    ctx.globalAlpha=0.16+0.14*Math.sin(lt*14); ctx.strokeStyle=AMBER; ctx.lineWidth=2*dpr;
     ctx.shadowColor=ORANGE; ctx.shadowBlur=8*dpr;
-    ctx.beginPath(); ctx.moveTo(g[0],g[1]); const cf=P([0.30,0.40]);
+    const cf=P([0.32,0.42]); ctx.beginPath(); ctx.moveTo(g[0],g[1]);
     ctx.quadraticCurveTo(cf[0],cf[1], h[0],h[1]); ctx.stroke(); ctx.shadowBlur=0; ctx.globalAlpha=1;
-    // intensifying rings — faster + brighter as the charge builds
-    const intensity=easeIn(lt), ringN=3+Math.floor(intensity*3);
-    for(let i=0;i<ringN;i++){ const sp=(lt*(1.2+intensity*1.8)+i/ringN)%1, rr=(6+sp*(34+intensity*28))*dpr;
-      ctx.globalAlpha=(1-sp)*(0.32+0.5*intensity); ctx.strokeStyle=ORANGE;
-      ctx.lineWidth=(2+intensity*1.6)*dpr; ctx.shadowColor=ORANGE; ctx.shadowBlur=(10+intensity*18)*dpr;
-      ctx.beginPath(); ctx.arc(h[0],h[1],rr,0,7); ctx.stroke();
+
+    // three tilted orbital rings (the atom), rotating + brightening as it charges
+    ctx.save(); ctx.translate(h[0],h[1]);
+    for(let i=0;i<3;i++){
+      ctx.save(); ctx.rotate(i*Math.PI/3 + lt*1.3 + Math.sin(lt*4+i)*0.15);
+      ctx.globalAlpha=0.4+0.55*I; ctx.strokeStyle=ORANGE; ctx.lineWidth=(2.2+I*3)*dpr;
+      ctx.shadowColor=ORANGE; ctx.shadowBlur=(16+I*48)*dpr;        // ≈3× glow
+      ctx.beginPath(); ctx.ellipse(0,0, R, R*0.46, 0, 0, 7); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+
+    // radiating "shine" spikes bursting from the nucleus
+    const spikes=16;
+    for(let i=0;i<spikes;i++){
+      const a=(i/spikes)*Math.PI*2 + lt*0.6;
+      const len=(R*0.30 + (0.5+0.5*Math.sin(lt*24+i))*R*0.45)*(0.55+I);
+      ctx.globalAlpha=0.3+0.5*I; ctx.strokeStyle=i%2?CORE:AMBER; ctx.lineWidth=(1.4+I*1.8)*dpr;
+      ctx.shadowColor=ORANGE; ctx.shadowBlur=(10+I*32)*dpr;
+      ctx.beginPath(); ctx.moveTo(h[0]+Math.cos(a)*R*0.26, h[1]+Math.sin(a)*R*0.26);
+      ctx.lineTo(h[0]+Math.cos(a)*(R*0.26+len), h[1]+Math.sin(a)*(R*0.26+len)); ctx.stroke();
     }
     ctx.shadowBlur=0; ctx.globalAlpha=1;
-    // electric crackle near the peak
-    if(intensity>0.5){ const cn=Math.floor((intensity-0.5)*16);
-      for(let i=0;i<cn;i++){ const a1=(i*2.39+lt*30)%(Math.PI*2), rr=(14+intensity*24)*dpr;
-        ctx.globalAlpha=0.5*intensity; ctx.strokeStyle=CORE; ctx.lineWidth=1.4*dpr; ctx.shadowColor=ORANGE; ctx.shadowBlur=8*dpr;
-        ctx.beginPath(); ctx.moveTo(h[0],h[1]); ctx.lineTo(h[0]+Math.cos(a1)*rr, h[1]+Math.sin(a1)*rr); ctx.stroke();
-      }
-      ctx.shadowBlur=0; ctx.globalAlpha=1;
-    }
-    const grow=5 + intensity*10 + Math.sin(lt*26)*(1+intensity*2.2);   // throbs, biggest before the beam
-    blob(h[0],h[1], grow, 1); sparkles(h[0],h[1], grow*0.9, 2, lt*6);
+
+    // bright nucleus — throbs and grows dramatically toward the beam (≈3× prior)
+    const core=7 + I*22 + Math.sin(lt*26)*(2+I*6);
+    blob(h[0],h[1], core, 1); sparkles(h[0],h[1], core*0.9, 2, lt*7);
   }
   function drawBeam(lt){                                    // STEP 3 — 5s: beams travel out, hologram holds, then gathers
     const e=P(eyes), sc=P(screen);
@@ -253,8 +283,7 @@
   }
   function start(){ resize(); frame(reduce?9000:performance.now()); }   // reduce → a lit beam frame
   addEventListener('resize', ()=>{ resize(); if(reduce) frame(9000); });
-  const hero=document.querySelector('img.bg');
-  if(hero.complete) start(); else hero.addEventListener('load', start);
+  if(hero.complete && hero.naturalWidth) start(); else hero.addEventListener('load', start);
 })();
 </script>
 </body>
