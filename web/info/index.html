@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>servo-agent · an agent-controllable browser</title>
-<meta name="description" content="An agent-controllable browser, built on the Servo engine. read_page distills the live, rendered DOM to clean markdown an agent can read — ~100–200× smaller than raw HTML.">
+<meta name="description" content="An agent-controllable browser, built on the Servo engine. read_page distills the live, rendered DOM to clean markdown ~59× smaller than raw HTML, plus a native in-engine read endpoint.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
@@ -120,7 +120,7 @@
         <p class="lede">servo-agent turns a build of the Servo engine into a browser an LLM can drive
           <em>and read</em>. It wraps Servo's built-in W3C WebDriver, and <code>read_page</code> distills
           the post-render DOM into clean markdown — so an agent reads content, not tag soup.</p>
-        <p class="stat">read_page · live DOM → clean markdown · ~100–200× smaller than raw HTML</p>
+        <p class="stat">read_page · live DOM → clean markdown · ~59× smaller on average (146× peak, measured)</p>
         <div class="cta-row">
           <a class="btn primary" href="/pc/">▸ Enter the kiosk</a>
           <a class="btn" href="#use-cases">See use cases</a>
@@ -138,9 +138,10 @@
         Because it already speaks WebDriver, an agent is on familiar ground — and because you control the
         engine, you can extend it at the source. The payoff is <code>read_page</code>: an agent reads distilled
         content instead of 200&nbsp;KB of tag soup.</p>
-      <div class="two" style="margin-top:1.2rem">
+      <div class="grid" style="margin-top:1.2rem">
         <div class="card"><h3>Wraps W3C WebDriver</h3><p>The standard automation surface LLMs already understand — no bespoke protocol.</p><div class="tags"><span class="tag">open_url</span><span class="tag">find</span><span class="tag">click</span></div></div>
-        <div class="card"><h3>read_page = the value-add</h3><p>Post-render DOM → clean markdown, ~100–200× smaller than raw HTML.</p><div class="tags"><span class="tag">trafilatura</span><span class="tag">noise-strip</span><span class="tag">absolute links</span></div></div>
+        <div class="card"><h3>read_page = the value-add</h3><p>Post-render DOM → clean markdown — <b style="color:var(--olive-hi);font-weight:400">~59× smaller</b> on average (146× peak, measured).</p><div class="tags"><span class="tag">trafilatura</span><span class="tag">noise-strip</span><span class="tag">absolute links</span></div></div>
+        <div class="card"><h3>read_native — in-engine</h3><p>A native <code>/servo/agent/read</code> endpoint returns title/text/headings/links computed inside Servo — no JS round-trip. The payoff of owning the engine.</p><div class="tags"><span class="tag">read_native</span><span class="tag">native</span><span class="tag">no roundtrip</span></div></div>
       </div>
     </section>
 
@@ -162,10 +163,10 @@
       <div class="sec-head"><span class="num">03</span><h2>The <span class="dim">tools</span></h2></div>
       <p class="lede" style="max-width:70ch">Exposed as the <code>servo-agent</code> MCP server — agent-shaped actions over WebDriver:</p>
       <div class="tools">
-        <span class="tag">open_url</span><span class="tag">read_page</span><span class="tag">find</span>
-        <span class="tag">wait_for_selector</span><span class="tag">click</span><span class="tag">type_text</span>
-        <span class="tag">fill_form</span><span class="tag">scroll</span><span class="tag">extract_links</span>
-        <span class="tag">extract_table</span><span class="tag">eval_js</span><span class="tag">screenshot</span><span class="tag">status</span>
+        <span class="tag">open_url</span><span class="tag">read_page</span><span class="tag">read_native</span><span class="tag">find</span>
+        <span class="tag">wait_for_selector</span><span class="tag">wait_for_load</span><span class="tag">click</span><span class="tag">type_text</span>
+        <span class="tag">fill_form</span><span class="tag">scroll</span><span class="tag">extract_links</span><span class="tag">extract_table</span>
+        <span class="tag">eval_js</span><span class="tag">get_errors</span><span class="tag">screenshot</span><span class="tag">status</span>
       </div>
     </section>
 
