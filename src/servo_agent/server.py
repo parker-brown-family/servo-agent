@@ -15,11 +15,16 @@ _BROWSER = ServoBrowser(headless=True)
 atexit.register(_BROWSER.shutdown)
 
 
-def build_mcp():
+def build_mcp(host: str | None = None, port: int | None = None):
     """Construct the FastMCP server. Imported lazily so unit tests need no mcp dep."""
     from mcp.server.fastmcp import FastMCP
 
-    mcp = FastMCP("servo-agent")
+    opts: dict = {}
+    if host:
+        opts["host"] = host
+    if port:
+        opts["port"] = port
+    mcp = FastMCP("servo-agent", **opts)
 
     @mcp.tool()
     def open_url(url: str, settle: bool = False) -> str:
@@ -157,5 +162,6 @@ def build_mcp():
     return mcp
 
 
-def serve() -> None:
-    build_mcp().run()
+def serve(transport: str = "stdio", host: str = "127.0.0.1", port: int = 8765) -> None:
+    """Run the MCP server. Default stdio (for Claude/Codex); `streamable-http` for a daemon."""
+    build_mcp(host, port).run(transport=transport)

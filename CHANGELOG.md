@@ -15,6 +15,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   error capture), and `screenshot` width/height/`full_page` options.
 - `bench/read_page_bench.py` — reproducible raw-HTML-vs-distilled benchmark
   (~59× average reduction across real sites).
+- `read_native()` + `read_native` MCP tool — native in-engine page read via the
+  Servo `/servo/agent/read` extension (no JS round-trip), with a `read_page` fallback.
+- `serve --http [host:port]` — run the MCP server as an HTTP (streamable-http)
+  daemon, so it can be managed as a long-running service.
+- `SERVO_WEBDRIVER` env — attach to an already-running servoshell engine instead
+  of spawning one (shared-engine deployments, e.g. via `spin`).
 
 ### Fixed
 - `read_page` distillation: inline anchors no longer reorder past punctuation;

@@ -85,6 +85,7 @@ class ServoBrowser:
         self.port: int | None = None
         self.base: str | None = None
         self.sid: str | None = None
+        self.external = False   # True when attached to an externally-run engine
 
     # -- context manager ---------------------------------------------------- #
     def __enter__(self) -> ServoBrowser:
@@ -104,21 +105,29 @@ class ServoBrowser:
     def ensure_started(self) -> None:
         if self.sid:
             return
-        if not self.binary or not Path(self.binary).exists():
-            raise ServoNotBuilt(
-                "servoshell binary not found. Build it "
-                "(`./mach build -d --media-stack dummy` in the servo fork) or set "
-                "$SERVOSHELL to its path."
+        external = os.environ.get("SERVO_WEBDRIVER")
+        if external:
+            # Attach to an already-running servoshell WebDriver (e.g. a spin-managed
+            # shared engine) instead of spawning our own. We own only the session.
+            base = external if external.startswith("http") else f"http://{external}"
+            self.base = base.rstrip("/")
+            self.external = True
+        else:
+            if not self.binary or not Path(self.binary).exists():
+                raise ServoNotBuilt(
+                    "servoshell binary not found. Build it "
+                    "(`./mach build -d --media-stack dummy` in the servo fork), set "
+                    "$SERVOSHELL to its path, or point $SERVO_WEBDRIVER at a running engine."
+                )
+            self.port = self._free_port()
+            self.base = f"http://127.0.0.1:{self.port}"
+            cmd = [str(self.binary), "--webdriver", str(self.port), "about:blank"]
+            if self.headless:
+                cmd.insert(1, "--headless")
+            self.proc = subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
-        self.port = self._free_port()
-        self.base = f"http://127.0.0.1:{self.port}"
-        cmd = [str(self.binary), "--webdriver", str(self.port), "about:blank"]
-        if self.headless:
-            cmd.insert(1, "--headless")
-        self.proc = subprocess.Popen(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-        self._wait_port(self.port)
+            self._wait_port(self.port)
         caps = {"capabilities": {"alwaysMatch": {"browserName": "servo"}}}
         self.sid = self._raw("POST", "/session", caps)["sessionId"]
 
