@@ -143,6 +143,20 @@ def test_screenshot_full_page_taller(browser, tmp_path) -> None:
     assert full_h >= 2000  # ~60 rows * 50px, minus chrome, comfortably exceeded
 
 
+def test_read_native(browser, sample_url: str) -> None:
+    # Native /servo/agent/read; skip on a servoshell that predates the endpoint.
+    browser.navigate(sample_url)
+    out = browser.read_native()
+    if out is None:
+        import pytest
+
+        pytest.skip("servoshell lacks the native /servo/agent/read endpoint")
+    assert out["title"] == "Sample Page — servo-agent tests"
+    assert "Primary Title" in out["text"]
+    assert any(h["text"] == "Primary Title" for h in out["headings"])
+    assert any("example.com" in link["href"] for link in out["links"])
+
+
 def browser_read(browser) -> str:
     from servo_agent.distill import distill
 

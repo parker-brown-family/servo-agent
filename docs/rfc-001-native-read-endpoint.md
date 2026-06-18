@@ -1,8 +1,10 @@
 # RFC-001 — Native page-read endpoint (Track T3)
 
-> Status: **planned** (design complete, implementation queued). Adds a native
-> WebDriver extension to the Servo engine so `servo-agent` can read distilled
-> page content without the slow `execute_script(outerHTML)` round-trip.
+> Status: **implemented (v1)**. The `POST /servo/agent/read` extension is live on
+> the Servo fork (branch `t3/native-read`) and verified end-to-end; the
+> `servo-agent` client exposes it via `ServoBrowser.read_native()` and the
+> `read_native` MCP tool (with a 404 fallback to `read_page`). Adds native
+> page-content extraction without the slow `execute_script(outerHTML)` round-trip.
 
 ## Goal
 

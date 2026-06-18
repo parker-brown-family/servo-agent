@@ -272,6 +272,22 @@ class ServoBrowser:
             "return document.documentElement.outerHTML;"
         )
 
+    def read_native(self, timeout: float = 10.0) -> dict[str, Any] | None:
+        """Read the page natively via Servo's `/servo/agent/read` extension.
+
+        Returns ``{url, title, text, headings, links}`` computed inside the engine
+        (no `execute_script(outerHTML)` round-trip), or ``None`` if the running
+        servoshell predates the endpoint (HTTP 404) — callers fall back to
+        ``read_html()`` + :func:`servo_agent.distill.distill`.
+        """
+        self.ensure_started()
+        resp = requests.post(
+            f"{self.base}/session/{self.sid}/servo/agent/read", json={}, timeout=timeout
+        )
+        if resp.status_code != 200:
+            return None  # 404 → endpoint absent; other errors → fall back gracefully
+        return resp.json().get("value")
+
     # -- elements ----------------------------------------------------------- #
     def find_all(self, selector: str) -> list[str]:
         els = self._cmd("POST", "/elements", {"using": "css selector", "value": selector})

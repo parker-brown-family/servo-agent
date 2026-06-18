@@ -39,6 +39,21 @@ def build_mcp():
         return distill(_BROWSER.read_html(), _BROWSER.current_url(), max_chars=max_chars)
 
     @mcp.tool()
+    def read_native() -> str:
+        """Read the page natively in the engine (fast): url/title/text/headings/links.
+
+        Uses Servo's `/servo/agent/read` extension — no JS round-trip. Returns
+        `{available:false}` if the running engine predates the endpoint; use
+        `read_page` for rich markdown instead.
+        """
+        out = _BROWSER.read_native()
+        if out is None:
+            return json.dumps(
+                {"available": False, "note": "engine lacks /servo/agent/read; use read_page"}
+            )
+        return json.dumps(out)
+
+    @mcp.tool()
     def find(selector: str) -> str:
         """Find elements by CSS selector. Returns count + first few elements' text."""
         ids = _BROWSER.find_all(selector)
