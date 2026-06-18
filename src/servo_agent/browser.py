@@ -104,7 +104,16 @@ class ServoBrowser:
 
     def ensure_started(self) -> None:
         if self.sid:
-            return
+            # A cached session is only usable while its engine is alive. When we
+            # OWN the servoshell process and it has exited (crashed, OOM-killed,
+            # or the binary rebuilt mid-session), the WebDriver port is dead and
+            # every command would wedge on "connection refused" forever. Drop the
+            # stale session and fall through to respawn. An `external` engine
+            # (attached, not owned by us) has no proc to poll, so trust its sid.
+            if self.external or (self.proc and self.proc.poll() is None):
+                return
+            self.sid = None
+            self.proc = None
         external = os.environ.get("SERVO_WEBDRIVER")
         if external:
             # Attach to an already-running servoshell WebDriver (e.g. a spin-managed
