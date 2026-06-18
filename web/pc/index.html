@@ -18,7 +18,7 @@
   /* the hero is drawn INTO a canvas with the exact same cover-transform the
      animation uses — so photo + energy stay pixel-aligned at every resolution,
      with no dependence on the browser's object-fit. */
-  #hero{display:none}
+  #hero,#cat{display:none}
   canvas.bg{position:absolute; inset:0; z-index:0; width:100%; height:100%;
     filter:saturate(1.04) contrast(1.03) brightness(.96);}
   .wash{position:absolute; inset:0; z-index:1; pointer-events:none;
@@ -69,6 +69,7 @@
 <body>
   <main class="stage" aria-label="servo-agent — a robot reads the live web and beams it onto a screen">
     <img id="hero" src="/assets/hero.png" alt="A retro robot cradles a glowing holographic globe and beams it from its eyes onto a vintage personal computer.">
+    <img id="cat" src="/assets/keyboard-cat.png" alt="" aria-hidden="true">
     <canvas class="bg" id="bg" aria-hidden="true"></canvas>
     <div class="wash"></div><div class="scan"></div>
     <canvas class="flow" aria-hidden="true"></canvas>
@@ -96,7 +97,7 @@
 (() => {
   const cv = document.querySelector('canvas.flow'), ctx = cv.getContext('2d');
   const bg = document.getElementById('bg'), bgctx = bg.getContext('2d');
-  const hero = document.getElementById('hero');
+  const hero = document.getElementById('hero'), cat = document.getElementById('cat');
   const stepN = document.querySelector('#step .n'), stepText = document.getElementById('stepText');
   const HERO_W = 1333, HERO_H = 1180;
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -192,11 +193,11 @@
       ctx.beginPath(); ctx.moveTo(V[i][0],V[i][1]); ctx.lineTo(V[j][0],V[j][1]); ctx.stroke(); } };
     ctx.lineCap='round'; ctx.lineJoin='round';
     ctx.shadowColor='#79caff'; ctx.shadowBlur=64*dpr;                       // huge soft halo
-    ctx.strokeStyle='rgba(120,200,255,'+(alpha*0.55)+')'; ctx.lineWidth=8*dpr; edges();
+    ctx.strokeStyle='rgba(120,200,255,'+(alpha*0.55)+')'; ctx.lineWidth=12*dpr; edges();
     ctx.shadowBlur=34*dpr;                                                  // mid bloom
-    ctx.strokeStyle='rgba(170,222,255,'+(alpha*0.8)+')'; ctx.lineWidth=4*dpr; edges();
+    ctx.strokeStyle='rgba(170,222,255,'+(alpha*0.8)+')'; ctx.lineWidth=6*dpr; edges();
     ctx.shadowBlur=14*dpr;                                                  // crisp bright core
-    ctx.strokeStyle='rgba(230,246,255,'+alpha+')'; ctx.lineWidth=2.4*dpr; edges();
+    ctx.strokeStyle='rgba(230,246,255,'+alpha+')'; ctx.lineWidth=3.6*dpr; edges();   // 50% thicker
     ctx.shadowColor='#bfe9ff'; ctx.shadowBlur=26*dpr;                       // glowing vertices
     ctx.fillStyle='rgba(245,252,255,'+Math.min(1,alpha+0.3)+')';
     for(const v of V){ ctx.beginPath(); ctx.arc(v[0],v[1], 3.8*dpr,0,7); ctx.fill(); }
@@ -221,7 +222,7 @@
           pts.push([cx+P3[0]*scale*k2*grow, cy+P3[1]*scale*k2*grow]);
         }
         ctx.strokeStyle=`hsla(${hue},92%,64%,${alpha})`; ctx.shadowColor=`hsl(${hue},95%,60%)`;
-        ctx.shadowBlur=14*dpr; ctx.lineWidth=3*dpr; ctx.lineCap='round';
+        ctx.shadowBlur=14*dpr; ctx.lineWidth=3.9*dpr; ctx.lineCap='round';   // 30% thicker bands
         ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
         for(let k=1;k<pts.length;k++) ctx.lineTo(pts[k][0],pts[k][1]);
         ctx.stroke();
@@ -297,7 +298,7 @@
     });
     ctx.shadowBlur=0; ctx.globalAlpha=1;
     // a GROWING RAINBOW HOPF FIBRATION renders on the CRT as the brain drains in
-    hopf(sc[0], sc[1], cover.dw*0.088, T*0.85, 0.92*fill, easeOut(fill));
+    hopf(sc[0], sc[1], cover.dw*0.088, T*2.55, 0.92*fill, easeOut(fill));   // 300% faster spin
     if(drain>0.02) drawAtom(e[0],e[1], (8 + drain*162)*dpr, drain, T);  // eye atom STARTS brain-sized, then drains
     blob(sc[0],sc[1], 3 + fill*7, 1);                                   // the orb coalescing on the screen
   }
@@ -333,6 +334,22 @@
       ctx.shadowBlur=0; ctx.globalAlpha=1;
       if(f<0.20) blob(c[0],c[1], 3.0*(1-f/0.20)+0.8, 1);   // the splash where the pebble lands
     }
+    drawCat(lt);                                            // 🐱 the keyboard cat pops up to type
+  }
+  function drawCat(lt){               // keyboard cat slides up at the bottom-center and bobs while typing
+    if(!cat.naturalWidth) return;
+    let vis;
+    if(lt<0.10) vis=easeOut(lt/0.10);                       // pop up
+    else if(lt>0.90) vis=1-easeIn((lt-0.90)/0.10);          // duck back down
+    else vis=1;
+    if(vis<=0.001) return;
+    const cw=Math.min(cv.width*0.30, 460*dpr), ch=cw*cat.naturalHeight/cat.naturalWidth;
+    const x=cv.width*0.50 - cw/2, top=cv.height - ch*vis + Math.sin(T*9)*ch*0.025;   // gentle bob
+    ctx.save(); ctx.globalAlpha=Math.min(1,vis); ctx.shadowBlur=0;       // NB: drawImage + shadow renders blank in Servo
+    ctx.fillStyle='rgba(8,6,3,0.5)'; ctx.fillRect(x+3*dpr, top+5*dpr, cw, ch);   // manual drop shadow
+    ctx.drawImage(cat, x, top, cw, ch);
+    ctx.strokeStyle='rgba(255,140,0,0.85)'; ctx.lineWidth=2.5*dpr; ctx.strokeRect(x,top,cw,ch);
+    ctx.restore();
   }
 
   const draw = {type:drawType, toHead:drawToHead, charge:drawCharge,
@@ -350,7 +367,9 @@
   }
   function start(){ resize(); frame(reduce?9000:performance.now()); }   // reduce → a lit beam frame
   addEventListener('resize', ()=>{ resize(); if(reduce) frame(9000); });
-  if(hero.complete && hero.naturalWidth) start(); else hero.addEventListener('load', start);
+  // decode both images first so the photo + the keyboard cat are ready from frame 1
+  const dec = im => (im.decode ? im.decode().catch(()=>0) : Promise.resolve());
+  Promise.all([dec(hero), dec(cat)]).then(start);
 })();
 </script>
 </body>
