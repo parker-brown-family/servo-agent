@@ -39,11 +39,17 @@ extend it at the source (see the [roadmap](docs/roadmap.md)).
 
 The payoff is `read_page`: an agent reads distilled content, not tag soup.
 
-| Page | Raw HTML | Distilled markdown |
-|---|---|---|
-| Wikipedia article | ~372 KB | ~2 KB |
-| Hacker News front page | ~40 KB | clean story list w/ links |
-| MDN doc | ~102 KB | ~2 KB, no nav/sidebar chrome |
+Measured across real sites (reproducible — `uv run python bench/read_page_bench.py`):
+
+| Page | Rendered HTML | Distilled markdown | Reduction |
+|---|---|---|---|
+| `rfc-editor.org` (RFC 2616) | ~2 MB | ~12 KB | **146×** |
+| Wikipedia article | ~506 KB | ~12 KB | **43×** |
+| `playwright.dev` (Docusaurus SPA) | ~134 KB | ~5 KB | **27×** |
+| Hacker News front page | ~34 KB | ~12 KB (links kept) | 3× |
+
+**~59× smaller on average** — and the markdown is clean (footnotes, citation
+superscripts, and nav chrome stripped; links preserved and absolute).
 
 ## Install
 

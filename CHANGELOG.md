@@ -11,6 +11,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `SECURITY.md`, issue/PR templates, release workflow, `CHANGELOG.md`.
 - `servo-agent --help` / `-h` usage output; unknown commands exit `2` with a hint.
 - PEP 561 typed marker (`py.typed`) — the package ships type information.
+- New tools: `wait_for_load` (waits out SPA hydration), `get_errors` (page JS
+  error capture), and `screenshot` width/height/`full_page` options.
+- `bench/read_page_bench.py` — reproducible raw-HTML-vs-distilled benchmark
+  (~59× average reduction across real sites).
+
+### Fixed
+- `read_page` distillation: inline anchors no longer reorder past punctuation;
+  footnote/citation superscripts and Wikipedia editorial tags are stripped;
+  mid-sentence list-marker leaks healed; link-only table cells preserved;
+  Docusaurus `:::` admonitions unwrapped. Each fix covered by a focused test.
 
 ## [0.1.0] - 2026-06-17
 
