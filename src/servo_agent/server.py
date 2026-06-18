@@ -22,9 +22,13 @@ def build_mcp():
     mcp = FastMCP("servo-agent")
 
     @mcp.tool()
-    def open_url(url: str) -> str:
-        """Navigate the Servo engine to a URL. Returns title + final URL once loaded."""
-        state = _BROWSER.navigate(url)
+    def open_url(url: str, settle: bool = False) -> str:
+        """Navigate the Servo engine to a URL. Returns title + final URL once loaded.
+
+        Set `settle=true` to also wait for the DOM to go quiescent (SPA hydration)
+        before returning, so the title/content reflect the rendered page.
+        """
+        state = _BROWSER.navigate(url, settle=settle)
         return json.dumps(
             {"title": _BROWSER.title(), "url": _BROWSER.current_url(), "readyState": state}
         )
@@ -49,6 +53,29 @@ def build_mcp():
             return json.dumps({"selector": selector, "present": True, "count": n})
         except TimeoutError as e:
             return json.dumps({"selector": selector, "present": False, "error": str(e)})
+
+    @mcp.tool()
+    def wait_for_load(timeout: float = 15.0) -> str:
+        """Wait for the page to settle: readyState=complete AND a quiescent DOM.
+
+        Stronger than readyState alone — waits out post-load SPA hydration so a
+        following read sees the rendered page. Returns the final readyState.
+        """
+        state = _BROWSER.wait_for_load(timeout=timeout)
+        return json.dumps({"readyState": state, "settled": state == "complete"})
+
+    @mcp.tool()
+    def get_errors() -> str:
+        """Read JS errors collected on the current page (best-effort).
+
+        Returns {count, errors:[{type,message,source,line,col}]}. Captures uncaught
+        exceptions, unhandled promise rejections, and failed resource loads that
+        occur after navigation. Errors thrown during the very first page load
+        (before the collector is injected) may be missed — use to triage pages
+        that crash to an error boundary.
+        """
+        errors = _BROWSER.get_errors()
+        return json.dumps({"count": len(errors), "errors": errors})
 
     @mcp.tool()
     def click(selector: str) -> str:
@@ -91,9 +118,21 @@ def build_mcp():
         return json.dumps({"result": _BROWSER.eval_js(script)})
 
     @mcp.tool()
-    def screenshot(path: str = "servo-shot.png") -> str:
-        """Capture a PNG screenshot of the current page. Returns the absolute path."""
-        return json.dumps({"path": _BROWSER.screenshot(path)})
+    def screenshot(path: str = "servo-shot.png", width: int = 0, height: int = 0,
+                   full_page: bool = False) -> str:
+        """Capture a PNG screenshot of the current page. Returns the absolute path.
+
+        Optional `width`/`height` resize the window before capture (0 = leave as
+        is). `full_page=true` grows the window to fit the document for a best-effort
+        whole-page shot (very tall pages are clamped).
+        """
+        out = _BROWSER.screenshot(
+            path,
+            width=width or None,
+            height=height or None,
+            full_page=full_page,
+        )
+        return json.dumps({"path": out})
 
     @mcp.tool()
     def status() -> str:

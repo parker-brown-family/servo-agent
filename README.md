@@ -87,14 +87,16 @@ with ServoBrowser(headless=True) as b:
 
 | Tool | Purpose |
 |---|---|
-| `open_url` | Navigate; returns title/url once the new document has committed. |
+| `open_url` | Navigate; returns title/url once the new document has committed (`settle` to wait out SPA hydration). |
 | `read_page` | Post-render DOM → clean markdown (the value-add). |
 | `find` / `wait_for_selector` | Query / wait for elements by CSS selector. |
+| `wait_for_load` | Wait for readyState=complete **and** a quiescent DOM (post-load hydration). |
+| `get_errors` | Best-effort JS error capture (uncaught / rejection / failed resource). |
 | `click` / `type_text` / `fill_form` | Interaction. |
 | `scroll` | Scroll to bottom/top, a selector, or a pixel offset. |
 | `extract_links` / `extract_table` | Structured extraction → JSON. |
 | `eval_js` | Run JavaScript, get JSON back. |
-| `screenshot` / `status` | Capture / introspect. |
+| `screenshot` / `status` | Capture (optional `width`/`height`/`full_page`) / introspect. |
 
 ## Wire into an MCP client
 

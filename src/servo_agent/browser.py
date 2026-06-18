@@ -21,6 +21,34 @@ import requests
 # W3C element reference key (returned by find, accepted by /element/{id}).
 W3C_ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf"
 
+# Injected once per document on navigate: a best-effort JS error collector that
+# stashes window 'error' / 'unhandledrejection' events on window.__servoAgentErrors
+# so get_errors() can read them back. Idempotent (no-ops if already installed).
+_ERROR_COLLECTOR_JS = r"""
+(function () {
+  if (window.__servoAgentErrors) return 'already';
+  var store = (window.__servoAgentErrors = []);
+  var push = function (rec) { try { if (store.length < 500) store.push(rec); } catch (_) {} };
+  window.addEventListener('error', function (e) {
+    if (e && typeof e.message === 'string' && e.message) {
+      push({ type: 'error', message: String(e.message),
+             source: String(e.filename || ''),
+             line: e.lineno || 0, col: e.colno || 0 });
+    } else if (e && e.target && (e.target.src || e.target.href)) {
+      var u = String(e.target.src || e.target.href);
+      push({ type: 'resource', message: 'failed to load ' + u, source: u, line: 0, col: 0 });
+    }
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e && e.reason;
+    var msg = (r && r.message) ? r.message : (r != null ? r : 'unhandled rejection');
+    push({ type: 'unhandledrejection', message: String(msg), source: '', line: 0, col: 0 });
+  });
+  return 'installed';
+})();
+return 'ok';
+"""
+
 
 def find_servoshell() -> Path | None:
     """Locate the servoshell binary: $SERVOSHELL, PATH, or a sibling servo fork."""
@@ -45,6 +73,10 @@ class ServoNotBuilt(RuntimeError):
 
 class ServoBrowser:
     """One servoshell process + one WebDriver session. Lazy-started, auto-cleaned."""
+
+    # Upper bound for a full_page screenshot window height (px), so a runaway
+    # document can't ask the engine for an enormous surface.
+    _MAX_FULLPAGE_PX = 20000
 
     def __init__(self, binary: str | Path | None = None, headless: bool = True) -> None:
         self.binary = Path(binary) if binary else find_servoshell()
@@ -133,26 +165,82 @@ class ServoBrowser:
         return self._raw(method, f"/session/{self.sid}{path}", body)
 
     # -- navigation --------------------------------------------------------- #
-    def navigate(self, url: str, timeout: float = 20.0) -> str:
+    def navigate(self, url: str, timeout: float = 20.0, settle: bool = False) -> str:
         """Navigate and wait for the NEW document to actually commit.
 
         Servo's WebDriver POST /url can return before the new document replaces
         the old one, so polling readyState alone races (the previous page still
         reports 'complete'). We also wait for the live document URL to become
         the target before declaring readiness.
+
+        On commit we inject a best-effort JS error collector (see get_errors).
+        When `settle` is true we additionally wait_for_load() so SPAs that mutate
+        the DOM after readyState=complete (e.g. hydration) have settled before we
+        return — handy when the immediate next read is <title>/content.
         """
         prev = self.eval_js("return document.URL")
         self._cmd("POST", "/url", {"url": url})
         deadline = time.monotonic() + timeout
         target = url.split("#", 1)[0].rstrip("/")
         state = "unknown"
+        committed = False
         while time.monotonic() < deadline:
             cur = (self.eval_js("return document.URL") or "").split("#", 1)[0].rstrip("/")
             state = self.eval_js("return document.readyState") or "unknown"
             committed = cur == target or (cur != prev and cur != "about:blank")
             if committed and state == "complete":
-                return state
+                break
             time.sleep(0.2)
+        if committed:
+            self._install_error_collector()
+        if settle:
+            remaining = max(1.0, deadline - time.monotonic())
+            state = self.wait_for_load(timeout=remaining)
+        return state
+
+    def _install_error_collector(self) -> None:
+        """Inject the JS error collector into the current document (idempotent)."""
+        try:
+            self.eval_js(_ERROR_COLLECTOR_JS)
+        except Exception:  # noqa: BLE001 — diagnostics are best-effort, never fatal
+            pass
+
+    def wait_for_load(self, timeout: float = 15.0, quiet: float = 0.5,
+                      poll: float = 0.1) -> str:
+        """Wait for the page to *settle*, not merely reach readyState=complete.
+
+        Polls until `document.readyState === 'complete'` AND the DOM has been
+        quiescent — no childList mutations and a stable element count / scroll
+        height — for `quiet` seconds (default ~500ms). This catches SPA
+        frameworks that finish hydrating after the initial load event, which is
+        when reading <title>/content too early returns the pre-hydration shell.
+
+        Returns the final readyState ('complete' on success). Falls back to the
+        last observed readyState if `timeout` elapses first (does not raise, so a
+        slow page still yields whatever has rendered).
+        """
+        deadline = time.monotonic() + timeout
+        # Sample (elementCount, scrollHeight); DOM is "quiet" when this is stable.
+        sig_js = (
+            "return [document.getElementsByTagName('*').length, "
+            "(document.body ? document.body.scrollHeight : 0)]"
+        )
+        last_sig: Any = None
+        quiet_since: float | None = None
+        state = "unknown"
+        while time.monotonic() < deadline:
+            state = self.eval_js("return document.readyState") or "unknown"
+            sig = self.eval_js(sig_js)
+            now = time.monotonic()
+            if state == "complete" and sig == last_sig:
+                if quiet_since is None:
+                    quiet_since = now
+                elif now - quiet_since >= quiet:
+                    return state
+            else:
+                quiet_since = now if state == "complete" else None
+            last_sig = sig
+            time.sleep(poll)
         return state
 
     def title(self) -> str:
@@ -281,8 +369,67 @@ class ServoBrowser:
             self.click_selector(submit)
             self.eval_js("return document.readyState")  # nudge
 
+    # -- T2: diagnostics ---------------------------------------------------- #
+    def get_errors(self) -> list[dict[str, Any]]:
+        """Best-effort: return JS errors collected on the current page.
+
+        Returns a list of {type, message, source, line, col}, where `type` is
+        'error' (uncaught exception), 'unhandledrejection' (rejected promise), or
+        'resource' (a failed sub-resource load). The collector is installed on
+        navigate() the moment the new document commits.
+
+        LIMITATION: WebDriver runs *after* the document loads, so errors thrown
+        during the very first parse/execution — before the collector is injected
+        — can be missed. This catches anything that throws once the page is live
+        (timers, event handlers, async work, late module evaluation, rejected
+        promises), which covers most "this SPA crashed to its error boundary"
+        triage. For guaranteed first-byte coverage you'd need native console
+        capture in the engine (tracked separately as T3).
+        """
+        # Ensure the collector exists even if the page was reached without
+        # navigate() (e.g. a manual eval_js redirect); harmless if already there.
+        self._install_error_collector()
+        errs = self.eval_js(
+            "return Array.isArray(window.__servoAgentErrors) "
+            "? window.__servoAgentErrors : []"
+        )
+        return errs or []
+
     # -- capture ------------------------------------------------------------ #
-    def screenshot(self, path: str) -> str:
+    def screenshot(self, path: str, width: int | None = None,
+                   height: int | None = None, full_page: bool = False) -> str:
+        """Capture a PNG of the current page; returns the absolute file path.
+
+        Default behavior is unchanged: capture at the current window size.
+
+        - `width`/`height`: resize the WebDriver window (set_window_rect) before
+          capture. Servo's screenshot is the window surface, so the PNG comes out
+          at the new window's inner size.
+        - `full_page`: best-effort whole-document capture. Servo lays out the
+          full document regardless of viewport, so we read the content height
+          (max of body/documentElement scrollHeight) and grow the window tall
+          enough to fit it (clamped to _MAX_FULLPAGE_PX so a pathological page
+          can't request a gigantic surface), then capture. This approximates a
+          full-page shot without scroll-stitching; very tall pages are clamped.
+        """
+        if width is not None or height is not None or full_page:
+            self.ensure_started()
+            cur = self._cmd("GET", "/window/rect")
+            w = int(width) if width is not None else int(cur.get("width") or 1024)
+            h = int(height) if height is not None else int(cur.get("height") or 768)
+            if full_page:
+                # Lay out at the target width first, then measure true content height.
+                self._cmd("POST", "/window/rect", {"width": w, "height": h})
+                content_h = self.eval_js(
+                    "return Math.max("
+                    "document.body ? document.body.scrollHeight : 0,"
+                    "document.documentElement ? document.documentElement.scrollHeight : 0,"
+                    "document.body ? document.body.offsetHeight : 0)"
+                ) or h
+                # Pad for window chrome (the surface is a bit shorter than the
+                # window) so the bottom row isn't clipped; then clamp.
+                h = min(self._MAX_FULLPAGE_PX, int(content_h) + 80)
+            self._cmd("POST", "/window/rect", {"width": w, "height": h})
         b64 = self._cmd("GET", "/screenshot")
         Path(path).write_bytes(base64.b64decode(b64))
         return str(Path(path).resolve())
