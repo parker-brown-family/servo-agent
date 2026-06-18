@@ -245,34 +245,32 @@
     [2*Math.PI/3,  0.44,  1.65],
   ];
   function drawAtom(hx,hy,R,I,t){
-    // 1) SUNBURST — long radiating shine spikes (the emblem's signature rays)
-    for(let i=0;i<20;i++){ const a=(i/20)*Math.PI*2 + t*0.5;
-      const big=i%5===0;                                   // every 5th ray is a long major spike
-      const len=(R*(big?0.62:0.34) + (0.5+0.5*Math.sin(t*22+i))*R*0.55)*(0.6+1.1*I);
-      ctx.globalAlpha=(big?0.5:0.32)+0.5*I; ctx.strokeStyle=big?CORE:(i%2?AMBER:ORANGE);
-      ctx.lineWidth=((big?2.4:1.4)+I*2.6)*dpr; ctx.lineCap='round';
-      ctx.shadowColor=ORANGE; ctx.shadowBlur=(12+I*54)*dpr;
-      ctx.beginPath(); ctx.moveTo(hx+Math.cos(a)*R*0.22, hy+Math.sin(a)*R*0.22);
-      ctx.lineTo(hx+Math.cos(a)*(R*0.22+len), hy+Math.sin(a)*(R*0.22+len)); ctx.stroke(); }
-    ctx.shadowBlur=0; ctx.globalAlpha=1;
-    // 2) THREE tilted orbital rings + an electron riding each
+    // THREE tilted orbital rings + an electron riding each — no sunburst, no blob
     ctx.save(); ctx.translate(hx,hy);
     ORBITS.forEach(([tilt,fore,spin],i)=>{
-      ctx.save(); ctx.rotate(tilt + t*0.25 + Math.sin(t*3+i)*0.08);
-      ctx.globalAlpha=0.45+0.55*I; ctx.strokeStyle=i===1?AMBER:ORANGE; ctx.lineWidth=(2.4+I*3.6)*dpr;
+      const ang=tilt + t*0.25 + Math.sin(t*3+i)*0.08;
+      ctx.save(); ctx.rotate(ang);
+      ctx.globalAlpha=0.5+0.5*I; ctx.strokeStyle=i===1?AMBER:ORANGE; ctx.lineWidth=(2.4+I*3.6)*dpr;
       ctx.shadowColor=ORANGE; ctx.shadowBlur=(18+I*58)*dpr;
       ctx.beginPath(); ctx.ellipse(0,0,R,R*fore,0,0,7); ctx.stroke();
-      const ea=t*spin + i*2.1;                              // electron position on this orbit
-      const ex=Math.cos(ea)*R, ey=Math.sin(ea)*R*fore;
+      const ea=t*spin + i*2.1, ex=Math.cos(ea)*R, ey=Math.sin(ea)*R*fore;
       ctx.restore();
-      // bead drawn in atom-space (un-rotated) so its glow blob stays circular
-      const cs=Math.cos(tilt + t*0.25 + Math.sin(t*3+i)*0.08), sn=Math.sin(tilt + t*0.25 + Math.sin(t*3+i)*0.08);
-      blob(hx + ex*cs - ey*sn, hy + ex*sn + ey*cs, (2.2+I*4.2), 1, i===1?CORE:AMBER);
+      const cs=Math.cos(ang), sn=Math.sin(ang);              // small crisp electron dot (no blob)
+      ctx.globalAlpha=1; ctx.fillStyle=i===1?CORE:AMBER; ctx.shadowColor=ORANGE; ctx.shadowBlur=(7+I*7)*dpr;
+      ctx.beginPath(); ctx.arc(hx+ex*cs-ey*sn, hy+ex*sn+ey*cs, (1.8+I*2.2)*dpr, 0,7); ctx.fill();
+      ctx.shadowBlur=0; ctx.globalAlpha=1;
     });
     ctx.restore(); ctx.shadowBlur=0; ctx.globalAlpha=1;
-    // 3) the blazing nucleus orb (~3× bigger / brighter build than before)
-    blob(hx,hy, Math.max(2, 5 + I*84 + Math.sin(t*26)*(1+I*10)), 1);
-    sparkles(hx,hy, R*0.34+5, 2, t*7);
+    nuclearCore(hx,hy, R*0.32, I);                            // ☢ radioactive core, in place of the blob nucleus
+  }
+  // the radioactive trefoil: three 60°-wide blades around a bright hub
+  function nuclearCore(x,y,r,I){
+    ctx.save(); ctx.translate(x,y); ctx.rotate(T*0.5);
+    ctx.shadowColor=ORANGE; ctx.shadowBlur=(9+I*26)*dpr; ctx.fillStyle=ORANGE;
+    for(let k=0;k<3;k++){ const a0=-Math.PI/2 + k*2*Math.PI/3 - Math.PI/6, a1=a0+Math.PI/3;
+      ctx.beginPath(); ctx.arc(0,0, r, a0, a1); ctx.arc(0,0, r*0.46, a1, a0, true); ctx.closePath(); ctx.fill(); }
+    ctx.fillStyle=CORE; ctx.beginPath(); ctx.arc(0,0, r*0.30, 0,7); ctx.fill();   // bright hub
+    ctx.restore(); ctx.shadowBlur=0;
   }
 
   function drawToHead(lt){                                  // energy rides keyboard → robot head
@@ -285,10 +283,8 @@
   function drawCharge(lt){              // STEP 2 — the live web's 4-D energy charges the brain atom (3.5s)
     const h=P(head), g=P(web), I=easeIn(lt);
     const R=(18 + I*88 + Math.sin(lt*30)*(4+I*12))*dpr;   // the atom builds dramatically on the ear disc
-    // a glowing 4-D tesseract spins over the globe — the energy of the live web
-    const ts = cover.dw*0.140*(0.92+0.08*Math.sin(T*3)), tcy=g[1]-cover.dh*0.05;
-    tesseract(g[0], tcy, ts, T*1.7, 0.85+0.15*Math.sin(T*6));
-    // a dashed stream drains that energy into the brain atom on the ear disc
+    // a dashed stream drains the globe's energy into the brain atom on the ear disc
+    const ts = cover.dw*0.140, tcy=g[1]-cover.dh*0.05;
     ctx.globalAlpha=0.5+0.2*Math.sin(T*18); ctx.strokeStyle=AMBER; ctx.lineWidth=2.6*dpr;
     ctx.setLineDash([3*dpr,10*dpr]); ctx.lineDashOffset=-T*70*dpr;
     ctx.shadowColor=ORANGE; ctx.shadowBlur=10*dpr;
@@ -367,6 +363,9 @@
     for(const p of phases){ if(t < acc+p.d){ ph=p; break;} acc+=p.d; }
     const lt=(t-acc)/ph.d;
     ctx.clearRect(0,0,cv.width,cv.height);
+    // the 4-D tesseract spins on the globe at ALL times (every phase)
+    const gw=P(web), tts=cover.dw*0.140*(0.92+0.08*Math.sin(T*3));
+    tesseract(gw[0], gw[1]-cover.dh*0.05, tts, T*1.7, 0.85+0.15*Math.sin(T*6));
     draw[ph.k](Math.max(0,Math.min(1,lt)));
     if(ph.k!==curStep){ curStep=ph.k; stepN.textContent=ph.n; stepText.textContent=ph.t; }
     if(!reduce) requestAnimationFrame(frame);
