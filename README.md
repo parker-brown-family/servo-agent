@@ -124,6 +124,22 @@ args = ["run", "--project", "/path/to/servo-agent", "servo-agent", "serve"]
 > MCP tools are injected at client startup — restart after adding/changing the
 > server. Validate harness edits without a restart via `servo-agent selftest`.
 
+## Observability
+
+Every tool call is recorded to a structured JSONL log — the product feedback loop,
+built for agents to consume (not a human dashboard). It captures what only the
+server can see: distill extractor + compression ratio, fallbacks, errors, engine
+respawns, latency.
+
+```bash
+servo-agent events                 # rolled-up digest (rates, latency, distill ratios)
+servo-agent events --tail 50       # raw recent events (JSONL)
+servo-agent events --tool read_page --errors
+```
+
+Log at `$SERVO_AGENT_LOG` (default `~/.servo-agent/events.jsonl`); set
+`SERVO_AGENT_LOG=off` to disable. Details in [docs/observability.md](docs/observability.md).
+
 ## Use cases
 
 Worked, runnable examples live in [`examples/`](examples/) and the integration

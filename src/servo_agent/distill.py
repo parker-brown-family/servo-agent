@@ -300,6 +300,25 @@ def distill(html: str, url: str = "", max_chars: int = 12_000) -> str:
         url:  page URL — helps trafilatura resolve and classify content.
         max_chars: hard cap; output is truncated with a marker beyond it.
     """
+    md, _ = _distill(html, url, max_chars)
+    return md
+
+
+def _distill(html: str, url: str = "", max_chars: int = 12_000) -> tuple[str, dict]:
+    """:func:`distill` plus structured metadata for the event log.
+
+    Returns ``(markdown, meta)`` where ``meta`` records which extractor path won
+    (``trafilatura`` | ``fallback`` | ``failed``), the input/output sizes, the
+    compression ratio, and whether the output was truncated.
+    """
+    meta: dict = {
+        "extractor": None,
+        "in_chars": len(html),
+        "out_chars": 0,
+        "ratio": 0.0,
+        "truncated": False,
+    }
+
     # Recover link-only cells (Bug 4) before extraction so both paths benefit.
     try:
         prepared = _recover_empty_anchors(html)
@@ -314,17 +333,24 @@ def distill(html: str, url: str = "", max_chars: int = 12_000) -> str:
             prepared, url=url or None, output_format="markdown",
             include_links=True, include_formatting=True, favor_recall=True,
         )
+        if md and len(md.strip()) >= 40:
+            meta["extractor"] = "trafilatura"
     except Exception:  # noqa: BLE001 — trafilatura is best-effort
         md = None
 
     if not md or len(md.strip()) < 40:
         try:
             md = _fallback_markdown(html)  # fallback re-recovers anchors itself
+            meta["extractor"] = "fallback"
         except Exception as e:  # noqa: BLE001
             md = f"(distillation failed: {e})"
+            meta["extractor"] = "failed"
 
     md = _clean_markdown(md or "")
     md = _collapse(md)
     if len(md) > max_chars:
         md = md[:max_chars] + f"\n\n…[truncated at {max_chars} chars]"
-    return md
+        meta["truncated"] = True
+    meta["out_chars"] = len(md)
+    meta["ratio"] = round(meta["in_chars"] / len(md), 1) if md else 0.0
+    return md, meta

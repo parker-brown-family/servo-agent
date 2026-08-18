@@ -2,6 +2,10 @@
 
 A single lazily-started browser instance backs all tools; it is torn down at
 process exit. Wired into Claude Code / Codex as the `servo-agent` MCP server.
+
+Every tool call is recorded to a structured JSONL event log (see
+:mod:`servo_agent.events`) — the product feedback loop. Inspect it with
+`servo-agent events`; disable it with `SERVO_AGENT_LOG=off`.
 """
 from __future__ import annotations
 
@@ -9,9 +13,11 @@ import atexit
 import json
 
 from .browser import ServoBrowser
-from .distill import distill
+from .distill import _distill
+from .events import EventLog, make_logger, record_meta
 
 _BROWSER = ServoBrowser(headless=True)
+_LOG = EventLog.from_env()
 atexit.register(_BROWSER.shutdown)
 
 
@@ -26,7 +32,13 @@ def build_mcp(host: str | None = None, port: int | None = None):
         opts["port"] = port
     mcp = FastMCP("servo-agent", **opts)
 
+    # `@logged("tool")` stacks UNDER `@mcp.tool()`: it records timing / success /
+    # result size / engine state for each call while preserving the real function
+    # signature (functools.wraps), so FastMCP's tool schema is unchanged.
+    logged = make_logger(_BROWSER, _LOG)
+
     @mcp.tool()
+    @logged("open_url")
     def open_url(url: str, settle: bool = False) -> str:
         """Navigate the Servo engine to a URL. Returns title + final URL once loaded.
 
@@ -39,11 +51,15 @@ def build_mcp(host: str | None = None, port: int | None = None):
         )
 
     @mcp.tool()
+    @logged("read_page")
     def read_page(max_chars: int = 12000) -> str:
         """Read the CURRENT page as clean, token-efficient markdown (main content)."""
-        return distill(_BROWSER.read_html(), _BROWSER.current_url(), max_chars=max_chars)
+        md, meta = _distill(_BROWSER.read_html(), _BROWSER.current_url(), max_chars=max_chars)
+        record_meta(**meta)
+        return md
 
     @mcp.tool()
+    @logged("read_native")
     def read_native() -> str:
         """Read the page natively in the engine (fast): url/title/text/headings/links.
 
@@ -52,6 +68,7 @@ def build_mcp(host: str | None = None, port: int | None = None):
         `read_page` for rich markdown instead.
         """
         out = _BROWSER.read_native()
+        record_meta(native_available=out is not None)
         if out is None:
             return json.dumps(
                 {"available": False, "note": "engine lacks /servo/agent/read; use read_page"}
@@ -59,6 +76,7 @@ def build_mcp(host: str | None = None, port: int | None = None):
         return json.dumps(out)
 
     @mcp.tool()
+    @logged("find")
     def find(selector: str) -> str:
         """Find elements by CSS selector. Returns count + first few elements' text."""
         ids = _BROWSER.find_all(selector)
@@ -66,6 +84,7 @@ def build_mcp(host: str | None = None, port: int | None = None):
         return json.dumps({"selector": selector, "count": len(ids), "sample": sample})
 
     @mcp.tool()
+    @logged("wait_for_selector")
     def wait_for_selector(selector: str, timeout: float = 10.0, visible: bool = False) -> str:
         """Wait until >=1 element matches a CSS selector (optionally visible)."""
         try:
@@ -75,6 +94,7 @@ def build_mcp(host: str | None = None, port: int | None = None):
             return json.dumps({"selector": selector, "present": False, "error": str(e)})
 
     @mcp.tool()
+    @logged("wait_for_load")
     def wait_for_load(timeout: float = 15.0) -> str:
         """Wait for the page to settle: readyState=complete AND a quiescent DOM.
 
@@ -85,6 +105,7 @@ def build_mcp(host: str | None = None, port: int | None = None):
         return json.dumps({"readyState": state, "settled": state == "complete"})
 
     @mcp.tool()
+    @logged("get_errors")
     def get_errors() -> str:
         """Read JS errors collected on the current page (best-effort).
 
@@ -98,18 +119,21 @@ def build_mcp(host: str | None = None, port: int | None = None):
         return json.dumps({"count": len(errors), "errors": errors})
 
     @mcp.tool()
+    @logged("click")
     def click(selector: str) -> str:
         """Click the first element matching a CSS selector."""
         _BROWSER.click_selector(selector)
         return json.dumps({"clicked": selector, "url": _BROWSER.current_url()})
 
     @mcp.tool()
+    @logged("type_text")
     def type_text(selector: str, text: str) -> str:
         """Type text into the first element matching a CSS selector."""
         _BROWSER.type_selector(selector, text)
         return json.dumps({"typed_into": selector, "chars": len(text)})
 
     @mcp.tool()
+    @logged("fill_form")
     def fill_form(fields: dict, submit: str = "") -> str:
         """Fill a form: map of {css_selector: value}; optionally click `submit`."""
         _BROWSER.fill_form(fields, submit or None)
@@ -117,27 +141,32 @@ def build_mcp(host: str | None = None, port: int | None = None):
                            "url": _BROWSER.current_url()})
 
     @mcp.tool()
+    @logged("scroll")
     def scroll(to: str = "bottom") -> str:
         """Scroll the page: 'bottom', 'top', a CSS selector, or a pixel y value."""
         _BROWSER.scroll(to)
         return json.dumps({"scrolled": to})
 
     @mcp.tool()
+    @logged("extract_links")
     def extract_links(selector: str = "a") -> str:
         """Extract links under a selector as a JSON list of {text, href} (absolute)."""
         return json.dumps(_BROWSER.extract_links(selector))
 
     @mcp.tool()
+    @logged("extract_table")
     def extract_table(selector: str = "table") -> str:
         """Extract the first matching <table> as a JSON list of row objects."""
         return json.dumps(_BROWSER.extract_table(selector))
 
     @mcp.tool()
+    @logged("eval_js")
     def eval_js(script: str) -> str:
         """Execute JavaScript in the page (use 'return ...') and get the JSON result."""
         return json.dumps({"result": _BROWSER.eval_js(script)})
 
     @mcp.tool()
+    @logged("screenshot")
     def screenshot(path: str = "servo-shot.png", width: int = 0, height: int = 0,
                    full_page: bool = False) -> str:
         """Capture a PNG screenshot of the current page. Returns the absolute path.
@@ -155,6 +184,7 @@ def build_mcp(host: str | None = None, port: int | None = None):
         return json.dumps({"path": out})
 
     @mcp.tool()
+    @logged("status")
     def status() -> str:
         """Report engine/session status."""
         return json.dumps(_BROWSER.status())
