@@ -7,6 +7,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Tool-call event log** — every MCP tool call is recorded as one JSON line
+  (tool, clipped/redacted args, latency, ok/error, result size, engine
+  external/respawned state, and for `read_page` the distill extractor + compression
+  ratio). Built for agentic consumption, not a human dashboard. Inspect with
+  `servo-agent events` (summary digest), `--tail N` (raw events), `--tool`,
+  `--errors`, `--since`. Log at `$SERVO_AGENT_LOG` (default
+  `~/.servo-agent/events.jsonl`); set `SERVO_AGENT_LOG=off` to disable. Logging is
+  std-lib only and never fatal — a logging failure can't break a tool call.
 - Open-source project scaffolding: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
   `SECURITY.md`, issue/PR templates, release workflow, `CHANGELOG.md`.
 - `servo-agent --help` / `-h` usage output; unknown commands exit `2` with a hint.
