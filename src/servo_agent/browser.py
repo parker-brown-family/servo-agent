@@ -13,6 +13,7 @@ import shutil
 import socket
 import subprocess
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -168,6 +169,11 @@ class ServoBrowser:
 
     # -- raw W3C transport -------------------------------------------------- #
     def _raw(self, method: str, path: str, body: dict | None = None) -> Any:
+        # W3C WebDriver parses every POST body as JSON and requires an object, so
+        # commands that take no parameters (element click, back, refresh) must
+        # still send `{}`. Servo enforces this: an empty body is a 400.
+        if body is None and method == "POST":
+            body = {}
         resp = requests.request(method, f"{self.base}{path}", json=body, timeout=60)
         data = resp.json()
         if resp.status_code != 200:
@@ -184,33 +190,60 @@ class ServoBrowser:
 
     # -- navigation --------------------------------------------------------- #
     def navigate(self, url: str, timeout: float = 20.0, settle: bool = False) -> str:
-        """Navigate and wait for the NEW document to actually commit.
+        """Navigate, and wait at most `timeout` seconds for the NEW document.
 
-        Servo's WebDriver POST /url can return before the new document replaces
-        the old one, so polling readyState alone races (the previous page still
-        reports 'complete'). We also wait for the live document URL to become
-        the target before declaring readiness.
+        Servo's WebDriver `POST /url` holds the session until the load completes,
+        and a page that never reaches `complete` (a preload or analytics request
+        that never settles) holds it for the engine's page-load timeout of five
+        minutes. So navigation starts from script with `window.location.assign`,
+        which returns at once, and the wait below is ours and bounded.
 
-        On commit we inject a best-effort JS error collector (see get_errors).
-        When `settle` is true we additionally wait_for_load() so SPAs that mutate
-        the DOM after readyState=complete (e.g. hydration) have settled before we
-        return — handy when the immediate next read is <title>/content.
+        The URL cannot say when the new document has arrived: re-opening the
+        page you are on leaves it unchanged, and the old document still reports
+        `complete`. So the current document is marked with a token first, and
+        the navigation has committed once the live document no longer carries
+        it. A fragment-only change (same page, new `#anchor`) never replaces the
+        document, so it counts as committed at once.
+
+        Returns the new document's readyState: `complete`, or `interactive` /
+        `loading` when the page was still going at the deadline. Raises
+        TimeoutError if no new document arrived at all. On commit a best-effort
+        JS error collector is injected (see get_errors). When `settle` is true we
+        additionally wait_for_load() so SPAs that mutate the DOM after
+        readyState=complete (e.g. hydration) have settled before we return —
+        handy when the immediate next read is <title>/content.
         """
-        prev = self.eval_js("return document.URL")
-        self._cmd("POST", "/url", {"url": url})
+        token = uuid.uuid4().hex
+        prev = self.eval_js(
+            "document.__servoAgentNav = arguments[0]; return document.URL", [token]
+        ) or ""
+        self.eval_js("window.location.assign(arguments[0]); return true", [url])
+        fragment_only = "#" in url and url.split("#", 1)[0] == prev.split("#", 1)[0]
         deadline = time.monotonic() + timeout
-        target = url.split("#", 1)[0].rstrip("/")
         state = "unknown"
         committed = False
-        while time.monotonic() < deadline:
-            cur = (self.eval_js("return document.URL") or "").split("#", 1)[0].rstrip("/")
-            state = self.eval_js("return document.readyState") or "unknown"
-            committed = cur == target or (cur != prev and cur != "about:blank")
-            if committed and state == "complete":
+        last_error: RuntimeError | None = None
+        while True:
+            try:
+                same_document, state = self.eval_js(
+                    "return [document.__servoAgentNav === arguments[0], "
+                    "document.readyState]",
+                    [token],
+                )
+                last_error = None
+            except RuntimeError as exc:
+                # The old document can go away mid-command while the new one
+                # commits. That is the navigation happening; look again.
+                same_document, state, last_error = True, "unknown", exc
+            committed = fragment_only or not same_document
+            if (committed and state == "complete") or time.monotonic() >= deadline:
                 break
             time.sleep(0.2)
-        if committed:
-            self._install_error_collector()
+        if not committed:
+            raise TimeoutError(
+                f"navigation to {url!r} did not commit within {timeout}s (still on {prev!r})"
+            ) from last_error
+        self._install_error_collector()
         if settle:
             remaining = max(1.0, deadline - time.monotonic())
             state = self.wait_for_load(timeout=remaining)
