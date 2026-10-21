@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "servo-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "An agent-controllable browser over the Servo engine's built-in WebDriver."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -42,6 +42,12 @@ Documentation = "https://github.com/parker-brown-family/servo-agent/tree/main/do
 Changelog = "https://github.com/parker-brown-family/servo-agent/blob/main/CHANGELOG.md"
 Issues = "https://github.com/parker-brown-family/servo-agent/issues"
 Demo = "https://servo-agent.brownfamilysports.com"
+
+[tool.hatch.build.targets.sdist]
+# Hatchling reads the project's .gitignore but not the global one, so a local
+# build would otherwise pick up untracked tool state such as .claude/. The
+# product page and design notes are not part of the package.
+exclude = ["/.claude", "/.github", "/web", "/web/assets/*.png", "/design", "/dist"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/servo_agent"]

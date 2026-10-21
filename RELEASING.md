@@ -5,12 +5,16 @@ tag. PyPI publishing uses [Trusted Publishing][tp] (OIDC) — no API tokens.
 
 ## One-time setup (PyPI)
 
-1. Create the `servo-agent` project on PyPI (or reserve the name).
-2. Add a **Trusted Publisher** pointing at this repo:
+1. On PyPI, add a **Trusted Publisher** for this repository. Before the project
+   exists this is a *pending* publisher (Account → Publishing), and the first
+   upload through it creates the project:
+   - PyPI project name: `servo-agent`
    - Owner: `parker-brown-family`, Repository: `servo-agent`
    - Workflow: `release.yml`, Environment: `pypi`
-3. In the GitHub repo, create an environment named `pypi` (Settings →
-   Environments) — optionally with required reviewers.
+2. The GitHub environment `pypi` already exists. It requires approval from
+   @parker-brown-family, and only `v*` tags may deploy to it, so a pushed tag
+   builds and creates the GitHub Release at once, but publishes to PyPI only
+   after someone approves the waiting deployment.
 
 ## Cutting a release
 
@@ -23,8 +27,11 @@ tag. PyPI publishing uses [Trusted Publishing][tp] (OIDC) — no API tokens.
    git push origin vX.Y.Z
    ```
 
-The workflow builds the wheel + sdist, runs `twine check`, publishes to PyPI, and
-creates a GitHub Release with auto-generated notes and the artifacts attached.
+The workflow builds the wheel + sdist, runs `twine check`, creates a GitHub
+Release with auto-generated notes and the artifacts attached, and waits for the
+`pypi` deployment to be approved (the run's page, or
+`gh api repos/parker-brown-family/servo-agent/actions/runs/<run-id>/pending_deployments`)
+before publishing to PyPI.
 
 ## Local dry run
 

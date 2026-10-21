@@ -12,4 +12,4 @@ from .browser import ServoBrowser, ServoNotBuilt, find_servoshell
 from .distill import distill
 
 __all__ = ["ServoBrowser", "ServoNotBuilt", "find_servoshell", "distill", "__version__"]
-__version__ = "0.1.0"
+__version__ = "0.2.0"
