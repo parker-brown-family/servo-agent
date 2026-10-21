@@ -104,7 +104,9 @@ class _FakePage:
     def eval_js(self, script: str, args: list | None = None):
         if script.startswith("document.__servoAgentNav = "):
             self.token = args[0]
-            return self.url
+            target = args[1]
+            fragment_only = "#" in target and target.split("#")[0] == self.url.split("#")[0]
+            return [self.url, fragment_only]
         if script.startswith("window.location.assign"):
             self.assigned = args[0]
             return True
@@ -227,6 +229,23 @@ def test_navigation_that_never_commits_raises(monkeypatch, tmp_path) -> None:
 
     with pytest.raises(TimeoutError, match="did not commit"):
         b.navigate("https://example.com/b", timeout=2.0)
+
+
+def test_a_failed_poll_after_commit_does_not_undo_it(monkeypatch, tmp_path) -> None:
+    """The new document arrived; an error on the last poll must not read as 'never'."""
+    page = _FakePage("about:blank", arrives_after=0, new_state="interactive", growing=True)
+    b = _navigating_browser(monkeypatch, tmp_path, page)
+    polls_before_failing = 3
+
+    def flaky_eval(script: str, args: list | None = None):
+        if "__servoAgentNav ===" in script and page.polls >= polls_before_failing:
+            page.polls += 1
+            raise RuntimeError("POST /execute/sync -> 500 javascript error: document gone")
+        return page.eval_js(script, args)
+
+    monkeypatch.setattr(b, "eval_js", flaky_eval)
+
+    assert b.navigate("https://example.com/", timeout=3.0) == "unknown"
 
 
 def test_fragment_only_navigation_keeps_the_document(monkeypatch, tmp_path) -> None:

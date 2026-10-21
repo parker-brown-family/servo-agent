@@ -231,11 +231,20 @@ class ServoBrowser:
         handy when the immediate next read is <title>/content.
         """
         token = uuid.uuid4().hex
-        prev = self.eval_js(
-            "document.__servoAgentNav = arguments[0]; return document.URL", [token]
-        ) or ""
+        # The page's own URL parser decides whether this is a fragment-only
+        # change, so host case, default ports and relative URLs compare the way
+        # the navigation will treat them.
+        prev, fragment_only = self.eval_js(
+            "document.__servoAgentNav = arguments[0];"
+            "let fragmentOnly = false;"
+            "try {"
+            "  const to = new URL(arguments[1], document.URL), at = new URL(document.URL);"
+            "  fragmentOnly = to.hash !== '' && to.href.split('#')[0] === at.href.split('#')[0];"
+            "} catch (_) {}"
+            "return [document.URL, fragmentOnly];",
+            [token, url],
+        )
         self.eval_js("window.location.assign(arguments[0]); return true", [url])
-        fragment_only = "#" in url and url.split("#", 1)[0] == prev.split("#", 1)[0]
         deadline = time.monotonic() + timeout
         state = "unknown"
         committed = False
@@ -255,7 +264,9 @@ class ServoBrowser:
                 # The old document can go away mid-command while the new one
                 # commits. That is the navigation happening; look again.
                 same_document, state, now_shape, last_error = True, "unknown", None, exc
-            committed = fragment_only or not same_document
+            # Once a new document has been seen, a later failed poll does not
+            # undo that: the navigation committed.
+            committed = committed or fragment_only or not same_document
             now = time.monotonic()
             if committed and state == "complete":
                 break

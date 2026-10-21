@@ -217,6 +217,19 @@ def test_reopening_the_same_url_reads_the_new_document(browser, sample_url: str)
         assert browser.element_text(browser.find_all("h1")[0]) == "Primary Title"
 
 
+def test_fragment_navigation_keeps_the_document(browser, sample_url: str) -> None:
+    # `#anchor` on the page you are on scrolls; no new document arrives, so the
+    # token never disappears and navigate() must recognise the case up front.
+    import time
+
+    browser.navigate(sample_url)
+    browser.eval_js("document.__sameDocument = true; return 1")
+    started = time.monotonic()
+    assert browser.navigate(sample_url + "#data", timeout=10) == "complete"
+    assert time.monotonic() - started < 5
+    assert browser.eval_js("return document.__sameDocument === true")
+
+
 def browser_read(browser) -> str:
     from servo_agent.distill import distill
 
