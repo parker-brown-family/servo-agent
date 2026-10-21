@@ -52,19 +52,29 @@ return 'ok';
 
 
 def find_servoshell() -> Path | None:
-    """Locate the servoshell binary: $SERVOSHELL, PATH, or a sibling servo fork."""
+    """Locate servoshell: $SERVOSHELL, PATH, or a built `servo/` checkout nearby."""
     env = os.environ.get("SERVOSHELL")
     if env and Path(env).exists():
         return Path(env)
     on_path = shutil.which("servoshell")
     if on_path:
         return Path(on_path)
-    # Default: a sibling `servo/` checkout next to this repo (…/servo-agent → …/servo).
-    sibling = Path(__file__).resolve().parents[3] / "servo"
-    for profile in ("debug", "release"):
-        cand = sibling / "target" / profile / "servoshell"
-        if cand.exists():
-            return cand
+    return _servoshell_beside(Path(__file__).resolve())
+
+
+def _servoshell_beside(start: Path) -> Path | None:
+    """The nearest `servo/target/{debug,release}/servoshell` beside `start` or above it.
+
+    From a source checkout that is the sibling of this repo (…/servo-agent →
+    …/servo). When servo-agent is installed into another project's virtualenv
+    (servo-reader does this), the package lives under that project's `.venv`,
+    so walking up finds a `servo/` checkout beside that project instead.
+    """
+    for parent in start.parents:
+        for profile in ("debug", "release"):
+            cand = parent / "servo" / "target" / profile / "servoshell"
+            if cand.exists():
+                return cand
     return None
 
 

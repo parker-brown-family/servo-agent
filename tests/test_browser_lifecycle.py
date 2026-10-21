@@ -3,8 +3,9 @@
 Regression for the "wedged on a dead servoshell" bug: once a session id was
 cached, ensure_started() returned early forever, so a crashed servoshell left
 every command failing with "connection refused" until the MCP server restarted.
-Also covers bounded navigation (issue #2) and the JSON body every WebDriver
-POST must carry (issue #4).
+Also covers bounded navigation (issue #2), the JSON body every WebDriver POST
+must carry (issue #4), and finding the engine from a project that installs
+servo-agent.
 These stub the engine so they run in plain `pytest` (no servoshell build).
 """
 from __future__ import annotations
@@ -209,3 +210,20 @@ def test_parameterless_posts_send_an_empty_json_object(monkeypatch, tmp_path) ->
     assert ("POST", "/refresh", {}) in sent
     assert all(isinstance(body, dict) for method, _, body in sent if method == "POST")
     assert ("DELETE", "", None) in sent  # DELETE has no body to parse
+
+
+def test_finds_a_servo_checkout_beside_an_installing_project(tmp_path) -> None:
+    """servo-reader installs servo-agent into its .venv; walk up to the sibling."""
+    binary = tmp_path / "servo" / "target" / "debug" / "servoshell"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("")
+    installed = (
+        tmp_path / "servo-reader" / ".venv" / "lib" / "python3.12" / "site-packages"
+        / "servo_agent" / "browser.py"
+    )
+
+    assert browser_mod._servoshell_beside(installed) == binary
+
+
+def test_no_servo_checkout_means_none(tmp_path) -> None:
+    assert browser_mod._servoshell_beside(tmp_path / "project" / "browser.py") is None
