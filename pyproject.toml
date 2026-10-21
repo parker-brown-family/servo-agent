@@ -17,12 +17,16 @@ classifiers = [
     "Topic :: Software Development :: Testing",
     "Topic :: Internet :: WWW/HTTP :: Browsers",
 ]
+# Lower bounds are the oldest versions the test suite has passed against.
 dependencies = [
     "requests>=2.31",
-    "trafilatura>=1.8",
-    "markdownify>=0.11",
+    # 2.2.0 drops headings and links from some pages; 2.3.0 restored them.
+    "trafilatura>=2.1,!=2.2.0",
+    "markdownify>=0.11.6",
     "beautifulsoup4>=4.12",
-    "mcp>=1.2",
+    # mcp 2 renamed FastMCP to MCPServer and changed its API; the server is
+    # written against 1.x. Below 1.15, tool registration fails on our signatures.
+    "mcp>=1.15,<2",
 ]
 
 [project.optional-dependencies]

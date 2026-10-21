@@ -9,8 +9,6 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-# uv
-uv.lock
 # docs build
 site/
 
