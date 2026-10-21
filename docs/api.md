@@ -30,7 +30,7 @@ is omitted, it is discovered via `find_servoshell()`.
 
 | Method | Signature | Returns | Notes |
 |---|---|---|---|
-| `navigate` | `navigate(url, timeout=20.0)` | `str` (final `readyState`) | Waits for the **new** document to commit, not just `readyState`. |
+| `navigate` | `navigate(url, timeout=20.0, settle=False)` | `str` (final `readyState`) | Bounded wait for the **new** document; `interactive` once a page that never completes has a still DOM; raises `TimeoutError` if nothing commits. |
 | `title` | `title()` | `str` | Current document title. |
 | `current_url` | `current_url()` | `str` | Live document URL. |
 | `reload` | `reload()` | `None` | `POST /refresh`. |
@@ -100,8 +100,10 @@ with ServoBrowser() as b:
 find_servoshell() -> Path | None
 ```
 
-Discovery order: `$SERVOSHELL` → `PATH` → a sibling `servo/` fork checkout at
-`../servo/target/{debug,release}/servoshell`. Returns `None` if nothing is found.
+Discovery order: `$SERVOSHELL` → `PATH` → the nearest
+`servo/target/{debug,release}/servoshell` beside the installed package or any
+directory above it (from a source checkout, the sibling `../servo`). Returns
+`None` if nothing is found.
 
 ## CLI
 
@@ -120,10 +122,13 @@ lazily-started browser backs all of them and is torn down at process exit.
 
 | Tool | Signature | Returns |
 |---|---|---|
-| `open_url` | `open_url(url)` | `{title, url, readyState}` |
+| `open_url` | `open_url(url, settle=False)` | `{title, url, readyState}` |
 | `read_page` | `read_page(max_chars=12000)` | distilled markdown |
+| `read_native` | `read_native()` | `{url, title, text, headings, links}`, or `{available: false, note}` on an engine without `/servo/agent/read` |
 | `find` | `find(selector)` | `{selector, count, sample}` (first ≤10 texts) |
 | `wait_for_selector` | `wait_for_selector(selector, timeout=10.0, visible=False)` | `{selector, present, count}` or `{present: false, error}` |
+| `wait_for_load` | `wait_for_load(timeout=15.0)` | `{readyState, settled}` |
+| `get_errors` | `get_errors()` | `{count, errors: [{type, message, source, line, col}]}` |
 | `click` | `click(selector)` | `{clicked, url}` |
 | `type_text` | `type_text(selector, text)` | `{typed_into, chars}` |
 | `fill_form` | `fill_form(fields, submit="")` | `{filled, submitted, url}` |
@@ -131,5 +136,5 @@ lazily-started browser backs all of them and is torn down at process exit.
 | `extract_links` | `extract_links(selector="a")` | `[{text, href}, …]` |
 | `extract_table` | `extract_table(selector="table")` | `[{…}, …]` |
 | `eval_js` | `eval_js(script)` | `{result}` |
-| `screenshot` | `screenshot(path="servo-shot.png")` | `{path}` (absolute) |
+| `screenshot` | `screenshot(path="servo-shot.png", width=0, height=0, full_page=False)` | `{path}` (absolute) |
 | `status` | `status()` | engine/session status dict |

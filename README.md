@@ -16,8 +16,8 @@
 `servo-agent` turns a Servo build into a browser an LLM agent can drive — and,
 crucially, _read_. It wraps Servo's built-in **W3C WebDriver** server (a control
 surface LLMs already understand) and adds the one thing agents actually need:
-`read_page`, which distills the **post-render DOM** into clean markdown that is
-typically **~100–200× smaller than the raw HTML**.
+`read_page`, which distills the **post-render DOM** into clean markdown, with
+scripts, navigation chrome and citation markup removed and links kept absolute.
 
 It runs headless, manages the engine lifecycle for you, and ships as an **MCP
 server** so you can drop it straight into Claude Code, Codex, or any MCP client.
@@ -39,33 +39,51 @@ extend it at the source (see the [roadmap](docs/roadmap.md)).
 
 The payoff is `read_page`: an agent reads distilled content, not tag soup.
 
-Measured across real sites (reproducible — `uv run python bench/read_page_bench.py`):
+Measured on 2026-10-21 (reproducible — `uv run python bench/read_page_bench.py`):
 
-| Page | Rendered HTML | Distilled markdown | Reduction |
-|---|---|---|---|
-| `rfc-editor.org` (RFC 2616) | ~2 MB | ~12 KB | **146×** |
-| Wikipedia article | ~506 KB | ~12 KB | **43×** |
-| `playwright.dev` (Docusaurus SPA) | ~134 KB | ~5 KB | **27×** |
-| Hacker News front page | ~34 KB | ~12 KB (links kept) | 3× |
+| Page | Rendered HTML | Distilled markdown | Reduction | `read_page` returns |
+|---|---|---|---|---|
+| `playwright.dev` docs (Docusaurus SPA) | 134 KB | 5 KB | **27×** | 5 KB |
+| Wikipedia, "Web browser" | 597 KB | 36 KB | **16×** | 12 KB (capped) |
+| RFC 2616 on `rfc-editor.org` | 2 MB | 452 KB | 4× | 12 KB (capped) |
+| Hacker News front page | 34 KB | 17 KB (links kept) | 2× | 12 KB (capped) |
 
-**~59× smaller on average** — and the markdown is clean (footnotes, citation
-superscripts, and nav chrome stripped; links preserved and absolute).
+Pages built around navigation and boilerplate shrink the most; a page that is
+mostly text (the RFC) or mostly links (Hacker News) shrinks the least. Separately,
+`read_page` returns at most 12,000 characters unless you raise `max_chars`, so one
+call never floods an agent's context.
 
 ## Install
 
+`servo-agent` is not on PyPI yet. Install it from this repository:
+
 ```bash
-uv tool install servo-agent          # or: pipx install servo-agent
+uv tool install git+https://github.com/parker-brown-family/servo-agent
 ```
 
-You also need a built `servoshell`. Either put it on `PATH`, set `$SERVOSHELL`,
-or check out the [Servo](https://github.com/servo/servo) repo next to this one and:
+`pipx install git+https://github.com/parker-brown-family/servo-agent` works too.
+To work from a clone instead, run `uv sync` in it and put `uv run` in front of the
+commands below.
+
+You also need a built `servoshell`, Servo's browser binary. Put it on `PATH`, set
+`$SERVOSHELL`, or check out [Servo](https://github.com/servo/servo) next to this
+repository and build it:
 
 ```bash
 ./mach build -d --media-stack dummy  # -> target/debug/servoshell
 ```
 
-`servo-agent` auto-discovers the binary via `$SERVOSHELL` → `PATH` → a sibling
-`servo/` checkout.
+`servo-agent` looks for it in this order: `$SERVOSHELL`, then `PATH`, then a built
+`servo/` checkout beside this repository, or beside any directory above the
+installed package (so a project that installs servo-agent, such as
+[servo-reader](https://github.com/parker-brown-family/servo-reader), finds a
+`servo/` checkout beside itself).
+
+Every tool works with stock Servo except `read_native`, which needs the
+`/servo/agent/read` endpoint from the `t3/native-read` branch of
+[our Servo fork](https://github.com/parker-brown-family/servo/tree/t3/native-read).
+On other builds `read_native` answers `{"available": false}` and `read_page`
+does the reading.
 
 ## Quick start
 
@@ -95,6 +113,7 @@ with ServoBrowser(headless=True) as b:
 |---|---|
 | `open_url` | Navigate; returns title/url once the new document has committed (`settle` to wait out SPA hydration). |
 | `read_page` | Post-render DOM → clean markdown (the value-add). |
+| `read_native` | In-engine read: `{url, title, text, headings, links}` with no JS round-trip (needs the fork's endpoint, see Install). |
 | `find` / `wait_for_selector` | Query / wait for elements by CSS selector. |
 | `wait_for_load` | Wait for readyState=complete **and** a quiescent DOM (post-load hydration). |
 | `get_errors` | Best-effort JS error capture (uncaught / rejection / failed resource). |
@@ -107,6 +126,12 @@ with ServoBrowser(headless=True) as b:
 ## Wire into an MCP client
 
 **Claude Code**
+
+```bash
+claude mcp add servo-agent -s user -- servo-agent serve
+```
+
+From a clone, run it through uv instead:
 
 ```bash
 claude mcp add servo-agent -s user -- \
@@ -140,6 +165,20 @@ servo-agent events --tool read_page --errors
 Log at `$SERVO_AGENT_LOG` (default `~/.servo-agent/events.jsonl`); set
 `SERVO_AGENT_LOG=off` to disable. Details in [docs/observability.md](docs/observability.md).
 
+## Known limits
+
+- **Pages Servo never finishes loading.** Many real pages stay at
+  `readyState: interactive` in Servo because a web font or analytics beacon never
+  completes (servo.org itself does). `open_url` returns once such a page's DOM has
+  been still for two seconds and reports `interactive`; the content is readable.
+- **Screenshots of those pages time out** after Servo's 10-second limit
+  ([#3](https://github.com/parker-brown-family/servo-agent/issues/3)).
+- **One session, no saved profile:** no cookies across runs, no tabs, no
+  downloads. Login-gated flows still need a fuller browser.
+- **`click` → `back()` → `reload()`** in the Python API hits a Servo WebDriver bug
+  and answers 500 ([#5](https://github.com/parker-brown-family/servo-agent/issues/5)).
+  Each call works on its own.
+
 ## Use cases
 
 Worked, runnable examples live in [`examples/`](examples/) and the integration
@@ -165,9 +204,10 @@ uv run ruff check .
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup
-and the workflow. Please be kind ([Code of Conduct](CODE_OF_CONDUCT.md)) and
-report vulnerabilities privately ([SECURITY.md](SECURITY.md)). Changes are logged
-in [CHANGELOG.md](CHANGELOG.md).
+and the workflow. On your first pull request you sign the [CLA](CLA.md) once, by
+posting the comment the CLA bot asks for. Please be kind
+([Code of Conduct](CODE_OF_CONDUCT.md)) and report vulnerabilities privately
+([SECURITY.md](SECURITY.md)). Changes are logged in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

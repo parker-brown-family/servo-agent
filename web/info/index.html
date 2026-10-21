@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>servo-agent · an agent-controllable browser</title>
-<meta name="description" content="An agent-controllable browser, built on the Servo engine. read_page distills the live, rendered DOM to clean markdown ~59× smaller than raw HTML, plus a native in-engine read endpoint.">
+<meta name="description" content="An agent-controllable browser, built on the Servo engine. read_page distills the live, rendered DOM to clean markdown, plus a native in-engine read endpoint.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
@@ -120,7 +120,7 @@
         <p class="lede">servo-agent turns a build of the Servo engine into a browser an LLM can drive
           <em>and read</em>. It wraps Servo's built-in W3C WebDriver, and <code>read_page</code> distills
           the post-render DOM into clean markdown — so an agent reads content, not tag soup.</p>
-        <p class="stat">read_page · live DOM → clean markdown · ~59× smaller on average (146× peak, measured)</p>
+        <p class="stat">read_page · live DOM → clean markdown · 16× smaller on a Wikipedia article (measured)</p>
         <div class="cta-row">
           <a class="btn primary" href="/pc/">▸ Enter the kiosk</a>
           <a class="btn" href="#use-cases">See use cases</a>
@@ -140,8 +140,8 @@
         content instead of 200&nbsp;KB of tag soup.</p>
       <div class="grid" style="margin-top:1.2rem">
         <div class="card"><h3>Wraps W3C WebDriver</h3><p>The standard automation surface LLMs already understand — no bespoke protocol.</p><div class="tags"><span class="tag">open_url</span><span class="tag">find</span><span class="tag">click</span></div></div>
-        <div class="card"><h3>read_page = the value-add</h3><p>Post-render DOM → clean markdown — <b style="color:var(--olive-hi);font-weight:400">~59× smaller</b> on average (146× peak, measured).</p><div class="tags"><span class="tag">trafilatura</span><span class="tag">noise-strip</span><span class="tag">absolute links</span></div></div>
-        <div class="card"><h3>read_native — in-engine</h3><p>A native <code>/servo/agent/read</code> endpoint returns title/text/headings/links computed inside Servo — no JS round-trip. The payoff of owning the engine.</p><div class="tags"><span class="tag">read_native</span><span class="tag">native</span><span class="tag">no roundtrip</span></div></div>
+        <div class="card"><h3>read_page = the value-add</h3><p>Post-render DOM → clean markdown — <b style="color:var(--olive-hi);font-weight:400">16× smaller</b> on a Wikipedia article, 27× on a docs page (measured).</p><div class="tags"><span class="tag">trafilatura</span><span class="tag">noise-strip</span><span class="tag">absolute links</span></div></div>
+        <div class="card"><h3>read_native — in-engine</h3><p>A native <code>/servo/agent/read</code> endpoint, on our Servo fork, returns title/text/headings/links computed inside Servo — no JS round-trip. The payoff of owning the engine.</p><div class="tags"><span class="tag">read_native</span><span class="tag">native</span><span class="tag">no roundtrip</span></div></div>
       </div>
     </section>
 
@@ -176,10 +176,10 @@
       <div class="two">
         <div>
           <p class="kicker" style="letter-spacing:.2em">// install + drive</p>
-<pre><span class="c"># install the harness</span>
-uv tool install servo-agent
+<pre><span class="c"># install the harness (not on PyPI yet)</span>
+uv tool install git+https://github.com/parker-brown-family/servo-agent
 
-<span class="c"># build the engine (sibling Servo fork)</span>
+<span class="c"># build the engine (a Servo checkout beside it)</span>
 ./mach build -d --media-stack dummy
 
 <span class="c"># prove it end-to-end</span>

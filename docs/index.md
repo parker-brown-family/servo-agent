@@ -5,8 +5,8 @@
 `servo-agent` turns a Servo build into a browser an LLM agent can drive — and,
 crucially, _read_. It wraps Servo's built-in **W3C WebDriver** server (a control
 surface LLMs already understand) and adds the one thing agents actually need:
-`read_page`, which distills the **post-render DOM** into clean markdown that is
-typically **~100–200× smaller than the raw HTML**.
+`read_page`, which distills the **post-render DOM** into clean markdown, with
+scripts, navigation chrome and citation markup removed and links kept absolute.
 
 It runs headless, manages the engine lifecycle for you, and ships as an **MCP
 server** so you can drop it straight into Claude Code, Codex, or any MCP client.
@@ -33,11 +33,14 @@ extend it at the source (see the [roadmap](roadmap.md)).
 
 The payoff is `read_page`: an agent reads distilled content, not tag soup.
 
-| Page | Raw HTML | Distilled markdown |
+Measured on 2026-10-21 with `bench/read_page_bench.py`, before `read_page`'s
+default 12,000-character cap:
+
+| Page | Rendered HTML | Distilled markdown |
 |---|---|---|
-| Wikipedia article | ~372 KB | ~2 KB |
-| Hacker News front page | ~40 KB | clean story list w/ links |
-| MDN doc | ~102 KB | ~2 KB, no nav/sidebar chrome |
+| `playwright.dev` docs | 134 KB | 5 KB (27× smaller), no nav/sidebar chrome |
+| Wikipedia, "Web browser" | 597 KB | 36 KB (16× smaller) |
+| Hacker News front page | 34 KB | 17 KB, the story list with its links |
 
 ## When to use it
 

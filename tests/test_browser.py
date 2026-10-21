@@ -187,9 +187,9 @@ def test_reload_replaces_the_document(browser) -> None:
 
 @pytest.mark.xfail(
     reason=(
-        "Servo engine bug: the window a click navigated away from keeps WebDriver's "
-        "load-status sender, so after back() a refresh receives a stray "
-        "NavigationStart and answers 500"
+        "Servo engine bug (#5): the window a click navigated away from keeps "
+        "WebDriver's load-status sender, so after back() a refresh receives a "
+        "stray NavigationStart and answers 500"
     ),
     strict=False,
 )

@@ -11,9 +11,9 @@ and the integration adapters in
 pages, but raw HTML burns the context window on nav bars, scripts, and cookie
 banners.
 
-**How it serves it.** `read_page` returns distilled markdown — typically
-~100–200× smaller than the raw HTML — so the agent reads the *content* of each
-source and can fit far more sources in context.
+**How it serves it.** `read_page` returns distilled markdown — a Wikipedia
+article comes out 16× smaller than its rendered HTML — so the agent reads the
+*content* of each source and can fit far more sources in context.
 
 **Why it beats the alternatives.** Raw `fetch` misses anything JS-rendered;
 Chromium-over-CDP gives you the bytes but not the distillation, so you still pay
