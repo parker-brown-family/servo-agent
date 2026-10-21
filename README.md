@@ -9,7 +9,7 @@
 
 > **Status:** pre-1.0 / alpha — the API may change. Feedback and contributions welcome.
 
-![servo-agent — a robot giving life to a web page](web/assets/hero.png)
+![servo-agent — a robot giving life to a web page](https://raw.githubusercontent.com/parker-brown-family/servo-agent/main/web/assets/hero.png)
 
 <sub>Live product page → **[servo-agent.brownfamilysports.com](https://servo-agent.brownfamilysports.com)** — the [`/pc`](https://servo-agent.brownfamilysports.com/pc) kiosk ("Easy as 1-2-3" animation) + the [`/info`](https://servo-agent.brownfamilysports.com/info) page (use cases, quickstart).</sub>
 

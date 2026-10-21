@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-21
+
 ### Added
 - **Tool-call event log** — every MCP tool call is recorded as one JSON line
   (tool, clipped/redacted args, latency, ok/error, result size, engine
@@ -84,5 +86,6 @@ link below points at the commit.
 - pytest suite (unit + auto-skipping engine integration) and CI.
 - Product page (`/pc` kiosk, `/info`).
 
-[Unreleased]: https://github.com/parker-brown-family/servo-agent/compare/ea40ccf...main
+[Unreleased]: https://github.com/parker-brown-family/servo-agent/compare/v0.2.0...main
+[0.2.0]: https://github.com/parker-brown-family/servo-agent/releases/tag/v0.2.0
 [0.1.0]: https://github.com/parker-brown-family/servo-agent/tree/ea40ccf
