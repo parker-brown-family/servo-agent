@@ -1,9 +1,12 @@
 """Unit tests for DOM → markdown distillation. No engine required."""
 from __future__ import annotations
 
+import re
+
 from servo_agent.distill import (
     _clean_markdown,
     _fallback_markdown,
+    _prepare_html,
     _recover_empty_anchors,
     distill,
 )
@@ -201,6 +204,51 @@ def test_clean_strips_superscripts_full_pipeline() -> None:
     assert "popular among programmers" in md
 
 
+# trafilatura >= 2.2 keeps <sup> as literal HTML in its markdown and escapes the
+# brackets in link text (`<sup>[\[5\]](…#cite_note-5)</sup>`), so citations are
+# removed from the HTML, before extraction, where their structure still shows.
+def test_distill_strips_live_wikipedia_reference_markup() -> None:
+    # Live Parsoid forms (2026-10): a numbered reference and a [citation needed] tag.
+    html = _article(
+        "<p>Python is popular among programmers"
+        '<sup class="mw-ref reference" id="cite_ref-19"><a href="#cite_note-19">'
+        '<span class="mw-reflink-text"><span class="cite-bracket">[</span>17'
+        '<span class="cite-bracket">]</span></span></a></sup> and the foundation'
+        '<sup class="noprint Inline-Template Template-Fact">[<i>'
+        '<a href="https://en.wikipedia.org/wiki/Wikipedia:Citation_needed">'
+        "citation needed</a></i>]</sup> supports it.</p>"
+    )
+    md = distill(html, url=_WIKI)
+    assert "<sup" not in md
+    assert "17" not in md and "cite_note" not in md
+    assert "citation needed" not in md.lower()
+    assert "popular among programmers and the foundation supports it." in md
+
+
+def test_prepare_drops_footnote_link_superscripts() -> None:
+    # Pandoc / GitHub-style footnote references: a superscript whose links all
+    # point at a footnote anchor.
+    out = _prepare_html(
+        '<p>One<sup id="fnref1"><a href="#fn1" role="doc-noteref">1</a></sup> and'
+        ' two<sup><a href="#user-content-fn-2" data-footnote-ref="">2</a></sup>.</p>'
+    )
+    assert "<sup" not in out
+    assert "One and two." in out
+
+
+def test_distill_keeps_content_superscripts() -> None:
+    # An exponent is content, not a citation. trafilatura 2.1 flattens it to `mc2`;
+    # 2.2+ keeps the tag. Either way the 2 must survive.
+    md = distill(_article("<p>The relation E = mc<sup>2</sup> links mass and energy.</p>"),
+                 url=_WIKI)
+    assert re.search(r"mc(?:<sup>)?2", md)
+
+
+def test_prepare_unwraps_punctuation_only_superscript() -> None:
+    out = _prepare_html('<p>citations for<sup>.</sup> <a href="/v">verification</a></p>')
+    assert "for. <a" in out
+
+
 # --------------------------------------------------------------------------- #
 # Bug 3 — nested-list markers leak mid-sentence.
 # --------------------------------------------------------------------------- #
@@ -283,6 +331,19 @@ def test_fallback_recovers_link_only_table_cell() -> None:
     assert "| Repository |  |" not in md
 
 
+def test_recover_empty_anchor_skips_absolutized_in_page_anchor() -> None:
+    # read_html() absolutizes `#cite_note-1` in the page before distill sees it; it
+    # is still an in-page anchor and must not be filled with its own URL.
+    page = "https://en.wikipedia.org/wiki/Python"
+    out = _recover_empty_anchors(f'<a href="{page}#cite_note-1"></a>', url=page)
+    assert "></a>" in out
+
+
+def test_recover_empty_anchor_text_uses_resolved_href() -> None:
+    out = _recover_empty_anchors('<a href="/python/cpython"></a>', url="https://github.com/")
+    assert ">github.com/python/cpython<" in out
+
+
 def test_distill_recovers_link_only_cell_full_pipeline() -> None:
     html = _article(
         '<table class="infobox"><tbody>'
@@ -324,6 +385,42 @@ def test_clean_unwraps_admonitions_full_pipeline() -> None:
     md = distill(html, url="https://docusaurus.io/docs")
     assert ":::" not in md
     assert "You need Node 18+ installed first." in md
+
+
+# --------------------------------------------------------------------------- #
+# Bug 6 — relative links resolved against the domain root instead of the page.
+# distill() is also fed raw HTTP HTML (servo-reader) that read_html() never
+# absolutized; trafilatura alone turned `#sec` into https://host#sec.
+# --------------------------------------------------------------------------- #
+_PAGE = "https://book.example.org/embedding/overview.html"
+_RELATIVE_LINKS = (
+    '<p>Read <a href="building.html">the build guide</a> and then '
+    '<a href="#sec">this section</a> before embedding.</p>'
+)
+
+
+def test_distill_resolves_relative_links_against_the_page() -> None:
+    md = distill(_article(_RELATIVE_LINKS), url=_PAGE)
+    assert "(https://book.example.org/embedding/building.html)" in md
+    assert "(https://book.example.org/embedding/overview.html#sec)" in md
+    assert "(https://book.example.org/building.html)" not in md
+    assert "https://book.example.org#sec" not in md
+
+
+def test_fallback_resolves_relative_links_against_the_page() -> None:
+    md = _fallback_markdown(f"<main>{_RELATIVE_LINKS}</main>", _PAGE)
+    assert "(https://book.example.org/embedding/building.html)" in md
+    assert "(https://book.example.org/embedding/overview.html#sec)" in md
+
+
+def test_distill_honours_base_href() -> None:
+    html = (
+        '<html><head><base href="https://cdn.example.org/docs/"></head><body><main>'
+        '<p>See <a href="guide.html">the guide</a> for the setup steps.</p>'
+        "</main></body></html>"
+    )
+    md = distill(html, url=_PAGE)
+    assert "(https://cdn.example.org/docs/guide.html)" in md
 
 
 # --------------------------------------------------------------------------- #
