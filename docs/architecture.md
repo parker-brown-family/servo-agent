@@ -26,7 +26,7 @@ than pulling in a Selenium client. It opens one session
 (`POST /session` with `browserName: servo`) and maps the protocol onto
 agent-shaped primitives:
 
-- `navigate` → `POST /session/{id}/url`
+- `navigate` → `window.location.assign` via `execute/sync` (see below)
 - `eval_js` → `POST /session/{id}/execute/sync`
 - `find_all` → `POST /session/{id}/elements` (CSS selector)
 - `click`/`type` → `POST /session/{id}/element/{el}/click` and `/value`
@@ -58,24 +58,28 @@ This means a freshly constructed `ServoBrowser` holds no process — nothing is
 spawned until you navigate (or enter the context manager). One process, one
 session, per `ServoBrowser`.
 
-## The navigation race
+## Navigation
 
-Servo's WebDriver `POST /url` can return **before** the new document has replaced
-the old one. Polling `document.readyState` alone races: the *previous* page still
-reports `complete`, so a naive wait sees "complete" and reads stale content.
+Servo's WebDriver `POST /url` holds the session until the engine sees the load
+complete. Many real pages never get there in Servo — a web font or analytics
+beacon never finishes — and then `POST /url` blocks for the engine's five-minute
+page-load timeout, with every later command queued behind it.
 
-`navigate(url, timeout=20.0)` fixes this by waiting for the new document to
-actually **commit**, not just for a `complete` readyState:
+So `navigate(url, timeout=20.0)` starts navigation from script with
+`window.location.assign` and does its own bounded wait:
 
-1. Record the current `document.URL` before navigating.
-2. Issue `POST /url`.
-3. Poll until **both** hold: `readyState == "complete"` **and** the live
-   `document.URL` has become the target (or at least changed away from the
-   previous URL and isn't `about:blank`).
+1. Mark the current document with a random token (`document.__servoAgentNav`).
+2. Assign the URL.
+3. Poll the live document. The navigation has **committed** once the document
+   no longer carries the token, which works even when the URL is unchanged and
+   the old document still reports `complete`. A fragment-only change (same page,
+   new `#anchor`) never replaces the document and counts as committed at once.
+4. Return when the new document is `complete`, or when it is `interactive` and
+   its DOM (element count, scroll height) has been still for two seconds, or at
+   the deadline.
 
-It returns the final `readyState`. The fragment (`#…`) is stripped and trailing
-slashes normalized when comparing URLs, so anchor-only differences don't cause a
-false miss.
+It returns the final `readyState`, and raises `TimeoutError` if no new document
+ever committed, rather than reporting the previous page.
 
 ## The `read_page` pipeline
 
@@ -112,5 +116,6 @@ falls back:
      markdown.
 
 The result is whitespace-collapsed and truncated to `max_chars` with a marker if
-it overflows. That two-tier strategy is what produces the ~100–200× reduction:
-the agent sees content, not chrome.
+it overflows. That two-tier strategy is what strips the chrome, so the agent sees
+content: in the README's benchmark, a Wikipedia article distills 16× smaller than
+its rendered HTML and a docs page 27× smaller.

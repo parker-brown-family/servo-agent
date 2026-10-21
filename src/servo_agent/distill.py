@@ -8,9 +8,11 @@ required, so this module is fully unit-testable offline.
 Both extractors leave reproducible markdown defects on real pages (Wikipedia,
 Docusaurus). Two deterministic cleanup passes harden the output:
 
-* ``_recover_empty_anchors`` runs on the *raw HTML* before either extractor,
-  so a table cell whose only content is a link (e.g. a Wikipedia infobox
-  "Repository" row) keeps visible text instead of collapsing to an empty cell.
+* ``_prepare_html`` runs on the *raw HTML* before either extractor: it resolves
+  relative links against the page URL (honouring ``<base href>``), removes
+  citation superscripts while they are still identifiable by structure, and
+  gives a table cell whose only content is a link (e.g. a Wikipedia infobox
+  "Repository" row) visible text instead of an empty cell.
 * ``_clean_markdown`` runs on the *produced markdown* to fix link/punctuation
   reordering, strip citation superscripts, heal mid-sentence list-marker leaks,
   and unwrap Docusaurus ``:::`` admonition fences.
@@ -21,6 +23,8 @@ covered by a focused unit test in ``tests/test_distill.py``.
 from __future__ import annotations
 
 import re
+from typing import Any
+from urllib.parse import urldefrag, urljoin, urlsplit
 
 # Substrings in id/class that mark navigation / consent / promo chrome.
 _NOISE_TOKENS = (
@@ -38,13 +42,66 @@ _DROP_ROLES = ("navigation", "banner", "contentinfo", "search", "dialog", "alert
 
 
 # --------------------------------------------------------------------------- #
-# Bug 4 — table cell whose only content is a link renders empty.
-# Fix at the source: an anchor with no visible text but a real href gets visible
-# text derived from the href, *before* the HTML reaches trafilatura/markdownify.
-# Applied on both paths, so it also fixes the trafilatura output (a black box we
-# otherwise can't reach into). See tests: test_*recovers_link_only_*cell*.
+# Raw-HTML repairs — Bugs 2 (at the source), 4 and 6. They run on the parsed page
+# *before* either extractor, in one parse, so the trafilatura path (a black box we
+# otherwise can't reach into) and the markdownify fallback both benefit.
+# ``_prepare_html`` applies all of them.
 # --------------------------------------------------------------------------- #
-def _recover_empty_anchors(html: str) -> str:
+def _fragment(href: str) -> str:
+    try:
+        return urlsplit(href).fragment
+    except ValueError:  # malformed (e.g. a broken IPv6 host) — no fragment
+        return ""
+
+
+# Bug 2, at the source — citation superscripts. Since trafilatura 2.2 the markdown
+# serializer keeps <sup> as literal HTML and escapes brackets in link text, so a
+# Wikipedia reference arrives as `<sup>[\[5\]](…#cite_note-5)</sup>` and the
+# markdown-level strips below no longer match it. In the HTML a citation is still
+# identifiable by structure: Wikipedia's reference / editorial-tag classes, links
+# that all point at a footnote anchor, or text that is only a bracketed number or
+# an editorial tag (`_FN_EDITORIAL`, defined with the markdown strips below). Such
+# superscripts are removed; one holding only punctuation is unwrapped to plain
+# text. Every other superscript is content (`mc<sup>2</sup>`) and stays.
+_CITE_SUP_CLASSES = frozenset({"reference", "noprint", "inline-template"})
+_FOOTNOTE_FRAGMENT = re.compile(r"(?:^|[-_])(?:cite|fn|foot|note|endnote|ref)", re.IGNORECASE)
+_BRACKETED_NUMBER = re.compile(r"\[\s*\d{1,4}\s*\]")
+_PUNCT_ONLY = re.compile(r"[.,;:!?]+")
+
+
+def _is_citation_sup(sup: Any) -> bool:
+    if {c.lower() for c in sup.get("class") or []} & _CITE_SUP_CLASSES:
+        return True
+    text = sup.get_text(strip=True)
+    links = sup.find_all("a", href=True)
+    if links and len(text) <= 12 and all(
+        a.get("role") == "doc-noteref" or _FOOTNOTE_FRAGMENT.search(_fragment(a["href"]))
+        for a in links
+    ):
+        return True
+    return bool(_BRACKETED_NUMBER.fullmatch(text) or _FN_EDITORIAL.fullmatch(text))
+
+
+def _drop_citation_superscripts(soup: Any) -> bool:
+    changed = False
+    for sup in soup.find_all("sup"):
+        if sup.decomposed:
+            continue  # nested inside a superscript already removed
+        if _is_citation_sup(sup):
+            sup.decompose()
+            changed = True
+            continue
+        text = sup.get_text(strip=True)
+        if _PUNCT_ONLY.fullmatch(text):
+            sup.replace_with(text)  # `for<sup>.</sup> [link]` reads as `for. [link]`
+            changed = True
+    return changed
+
+
+# Bug 4 — table cell whose only content is a link renders empty. An anchor with no
+# visible text but a real href gets visible text derived from the href. See tests:
+# test_*recovers_link_only_*cell*.
+def _fill_empty_anchors(soup: Any, base: str = "", page_url: str = "") -> bool:
     """Give empty ``<a href>`` anchors visible text from their href.
 
     Wikipedia infobox cells (and similar) often hold a single link whose text
@@ -52,28 +109,97 @@ def _recover_empty_anchors(html: str) -> str:
     markdownify and trafilatura both render as an empty cell. We fill the anchor
     with a readable form of the href so the cell survives distillation.
     """
-    from bs4 import BeautifulSoup
-
-    soup = BeautifulSoup(html, "html.parser")
+    same_document = {urldefrag(u).url for u in (page_url, base) if u}
     changed = False
     for a in soup.find_all("a"):
         if a.get_text(strip=True):
             continue  # already has visible text — leave it alone
-        href = a.get("href") or ""
+        href = (a.get("href") or "").strip()
         if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
             continue  # in-page / non-navigational — no useful text to recover
-        a.string = re.sub(r"^[a-z][a-z0-9+.-]*://", "", href).rstrip("/")
+        try:
+            target = urljoin(base, href) if base else href
+            document, fragment = urldefrag(target)
+        except ValueError:
+            continue  # malformed href — nothing readable to derive
+        if fragment and document in same_document:
+            continue  # an in-page anchor that read_html() already absolutized
+        a.string = re.sub(r"^[a-z][a-z0-9+.-]*://", "", target).rstrip("/")
         changed = True
-    return str(soup) if changed else html
+    return changed
 
 
-def _fallback_markdown(html: str) -> str:
+# Bug 6 — relative links resolved against the domain root. trafilatura resolves a
+# relative href against scheme://host only, so on a page at /embedding/overview.html
+# `building.html` became https://host/building.html and `#sec` became https://host#sec.
+# read_html() absolutizes in the page, but distill() is also fed raw HTTP HTML
+# (servo-reader), so resolve here against the full page URL, honouring <base href>
+# the way a browser does. Absolute URLs pass through unchanged.
+def _document_base(soup: Any, url: str) -> str:
+    """The URL relative references resolve against: ``<base href>``, else the page."""
+    tag = soup.find("base", href=True)
+    if tag is not None:
+        try:
+            return urljoin(url, tag["href"].strip())
+        except ValueError:
+            pass
+    return url
+
+
+def _absolutize_links(soup: Any, base: str) -> bool:
+    if not base:
+        return False
+    targets = [(a, "href") for a in soup.find_all("a", href=True)]
+    targets += [(e, "src") for e in soup.find_all(["img", "source"], src=True)]
+    changed = False
+    for tag, attr in targets:
+        value = tag[attr]
+        try:
+            absolute = urljoin(base, value.strip())
+        except ValueError:
+            continue  # malformed — leave it exactly as the page had it
+        if absolute != value:
+            tag[attr] = absolute
+            changed = True
+    return changed
+
+
+def _repair_soup(soup: Any, url: str = "") -> bool:
+    """Apply the raw-HTML repairs in place; return whether anything changed."""
+    base = _document_base(soup, url)
+    changed = _drop_citation_superscripts(soup)
+    changed |= _fill_empty_anchors(soup, base, url)  # sees the original #fragment hrefs
+    changed |= _absolutize_links(soup, base)
+    return changed
+
+
+def _prepare_html(html: str, url: str = "") -> str:
+    """Raw HTML → the repaired HTML both extractors read."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    return str(soup) if _repair_soup(soup, url) else html
+
+
+def _recover_empty_anchors(html: str, url: str = "") -> str:
+    """Bug 4 on its own: fill empty ``<a href>`` anchors (see ``_fill_empty_anchors``)."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    filled = _fill_empty_anchors(soup, _document_base(soup, url), url)
+    return str(soup) if filled else html
+
+
+def _fallback_markdown(html: str, url: str = "") -> str:
     """Body-level HTML → markdown with nav-chrome / cookie-banner noise removed."""
     from bs4 import BeautifulSoup
     from markdownify import markdownify as mdify
 
-    html = _recover_empty_anchors(html)
     soup = BeautifulSoup(html, "html.parser")
+    try:
+        _repair_soup(soup, url)
+    except Exception:  # noqa: BLE001 — repairs are best-effort, never fatal
+        pass
     for tag in soup(list(_DROP_TAGS)):
         tag.decompose()
     for role in _DROP_ROLES:
@@ -296,8 +422,10 @@ def distill(html: str, url: str = "", max_chars: int = 12_000) -> str:
     """Rendered HTML → clean markdown.
 
     Args:
-        html: outerHTML of the page (ideally post-render, links absolutized).
-        url:  page URL — helps trafilatura resolve and classify content.
+        html: outerHTML of the page (ideally post-render). Relative links are
+              resolved against ``url`` (or the page's ``<base href>``).
+        url:  page URL — the base for relative links; also helps trafilatura
+              classify content.
         max_chars: hard cap; output is truncated with a marker beyond it.
     """
     md, _ = _distill(html, url, max_chars)
@@ -319,9 +447,9 @@ def _distill(html: str, url: str = "", max_chars: int = 12_000) -> tuple[str, di
         "truncated": False,
     }
 
-    # Recover link-only cells (Bug 4) before extraction so both paths benefit.
+    # Raw-HTML repairs (Bugs 2, 4, 6) before extraction so both paths benefit.
     try:
-        prepared = _recover_empty_anchors(html)
+        prepared = _prepare_html(html, url)
     except Exception:  # noqa: BLE001 — never let preprocessing break extraction
         prepared = html
 
@@ -340,7 +468,7 @@ def _distill(html: str, url: str = "", max_chars: int = 12_000) -> tuple[str, di
 
     if not md or len(md.strip()) < 40:
         try:
-            md = _fallback_markdown(html)  # fallback re-recovers anchors itself
+            md = _fallback_markdown(html, url)  # repairs its own parse of the page
             meta["extractor"] = "fallback"
         except Exception as e:  # noqa: BLE001
             md = f"(distillation failed: {e})"

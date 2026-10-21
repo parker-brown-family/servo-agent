@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Benchmark: raw rendered HTML vs distilled markdown across real sites.
 
-Measures the token/byte reduction `read_page` achieves on the post-render DOM.
+Measures the reduction distillation achieves on the post-render DOM. The
+markdown column is distilled WITHOUT read_page's default 12,000-character cap,
+so the ratio is the distillation's and not the cap's; the last column shows
+what read_page actually returns with its default cap.
 Reproducible: spawns its own headless servoshell via ServoBrowser.
 
     SERVOSHELL=/path/to/servoshell uv run python bench/read_page_bench.py
@@ -30,6 +33,9 @@ def human(n: int) -> str:
     return f"{n:.1f}GB"
 
 
+READ_PAGE_CAP = 12_000  # read_page's default max_chars
+
+
 def main(urls: list[str]) -> int:
     rows = []
     with ServoBrowser(headless=True) as b:
@@ -38,26 +44,29 @@ def main(urls: list[str]) -> int:
                 b.navigate(url)
                 time.sleep(0.5)
                 raw = b.eval_js("return document.documentElement.outerHTML.length") or 0
-                md = distill(b.read_html(), b.current_url())
+                md = distill(b.read_html(), b.current_url(), max_chars=10**9)
                 ratio = (raw / len(md)) if md else 0
                 rows.append((url, int(raw), len(md), ratio))
             except Exception as e:  # noqa: BLE001
                 rows.append((url, 0, 0, 0))
                 print(f"  ! {url}: {e}", file=sys.stderr)
 
-    print(f"\n{'Site':<48} {'raw HTML':>10} {'markdown':>10} {'reduction':>10}")
-    print("-" * 82)
+    print(f"\n{'Site':<40} {'raw HTML':>10} {'markdown':>10} {'reduction':>10} "
+          f"{'read_page':>16}")
+    print("-" * 90)
     tot_raw = tot_md = 0
     for url, raw, md, ratio in rows:
-        site = url.replace("https://", "")[:46]
-        print(f"{site:<48} {human(raw):>10} {human(md):>10} {ratio:>9.0f}×")
+        site = url.replace("https://", "")[:38]
+        sent = human(min(md, READ_PAGE_CAP)) + (" (capped)" if md > READ_PAGE_CAP else "")
+        print(f"{site:<40} {human(raw):>10} {human(md):>10} {ratio:>9.0f}× {sent:>16}")
         tot_raw += raw
         tot_md += md
     overall = (tot_raw / tot_md) if tot_md else 0
-    print("-" * 82)
-    print(f"{'TOTAL':<48} {human(tot_raw):>10} {human(tot_md):>10} {overall:>9.0f}×")
-    print(f"\nread_page distilled {human(tot_raw)} of rendered HTML to "
-          f"{human(tot_md)} of markdown — {overall:.0f}× smaller on average.")
+    print("-" * 90)
+    print(f"{'TOTAL':<40} {human(tot_raw):>10} {human(tot_md):>10} {overall:>9.0f}×")
+    print(f"\nDistillation turned {human(tot_raw)} of rendered HTML into "
+          f"{human(tot_md)} of markdown, {overall:.0f}× smaller in total. read_page "
+          f"returns at most {READ_PAGE_CAP:,} characters unless max_chars is raised.")
     return 0
 
 

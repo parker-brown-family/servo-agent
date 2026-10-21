@@ -13,6 +13,7 @@ import shutil
 import socket
 import subprocess
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -51,19 +52,29 @@ return 'ok';
 
 
 def find_servoshell() -> Path | None:
-    """Locate the servoshell binary: $SERVOSHELL, PATH, or a sibling servo fork."""
+    """Locate servoshell: $SERVOSHELL, PATH, or a built `servo/` checkout nearby."""
     env = os.environ.get("SERVOSHELL")
     if env and Path(env).exists():
         return Path(env)
     on_path = shutil.which("servoshell")
     if on_path:
         return Path(on_path)
-    # Default: a sibling `servo/` checkout next to this repo (…/servo-agent → …/servo).
-    sibling = Path(__file__).resolve().parents[3] / "servo"
-    for profile in ("debug", "release"):
-        cand = sibling / "target" / profile / "servoshell"
-        if cand.exists():
-            return cand
+    return _servoshell_beside(Path(__file__).resolve())
+
+
+def _servoshell_beside(start: Path) -> Path | None:
+    """The nearest `servo/target/{debug,release}/servoshell` beside `start` or above it.
+
+    From a source checkout that is the sibling of this repo (…/servo-agent →
+    …/servo). When servo-agent is installed into another project's virtualenv
+    (servo-reader does this), the package lives under that project's `.venv`,
+    so walking up finds a `servo/` checkout beside that project instead.
+    """
+    for parent in start.parents:
+        for profile in ("debug", "release"):
+            cand = parent / "servo" / "target" / profile / "servoshell"
+            if cand.exists():
+                return cand
     return None
 
 
@@ -77,6 +88,10 @@ class ServoBrowser:
     # Upper bound for a full_page screenshot window height (px), so a runaway
     # document can't ask the engine for an enormous surface.
     _MAX_FULLPAGE_PX = 20000
+
+    # How long a committed page may sit `interactive` with an unchanged DOM
+    # before navigate() treats it as loaded (see navigate).
+    _INTERACTIVE_QUIET_S = 2.0
 
     def __init__(self, binary: str | Path | None = None, headless: bool = True) -> None:
         self.binary = Path(binary) if binary else find_servoshell()
@@ -168,6 +183,11 @@ class ServoBrowser:
 
     # -- raw W3C transport -------------------------------------------------- #
     def _raw(self, method: str, path: str, body: dict | None = None) -> Any:
+        # W3C WebDriver parses every POST body as JSON and requires an object, so
+        # commands that take no parameters (element click, back, refresh) must
+        # still send `{}`. Servo enforces this: an empty body is a 400.
+        if body is None and method == "POST":
+            body = {}
         resp = requests.request(method, f"{self.base}{path}", json=body, timeout=60)
         data = resp.json()
         if resp.status_code != 200:
@@ -184,33 +204,87 @@ class ServoBrowser:
 
     # -- navigation --------------------------------------------------------- #
     def navigate(self, url: str, timeout: float = 20.0, settle: bool = False) -> str:
-        """Navigate and wait for the NEW document to actually commit.
+        """Navigate, and wait at most `timeout` seconds for the NEW document.
 
-        Servo's WebDriver POST /url can return before the new document replaces
-        the old one, so polling readyState alone races (the previous page still
-        reports 'complete'). We also wait for the live document URL to become
-        the target before declaring readiness.
+        Servo's WebDriver `POST /url` holds the session until the load completes,
+        and a page that never reaches `complete` (a preload or analytics request
+        that never settles) holds it for the engine's page-load timeout of five
+        minutes. So navigation starts from script with `window.location.assign`,
+        which returns at once, and the wait below is ours and bounded.
 
-        On commit we inject a best-effort JS error collector (see get_errors).
-        When `settle` is true we additionally wait_for_load() so SPAs that mutate
-        the DOM after readyState=complete (e.g. hydration) have settled before we
-        return — handy when the immediate next read is <title>/content.
+        The URL cannot say when the new document has arrived: re-opening the
+        page you are on leaves it unchanged, and the old document still reports
+        `complete`. So the current document is marked with a token first, and
+        the navigation has committed once the live document no longer carries
+        it. A fragment-only change (same page, new `#anchor`) never replaces the
+        document, so it counts as committed at once.
+
+        Returns the new document's readyState: `complete`; `interactive` once
+        its DOM has been still for _INTERACTIVE_QUIET_S, because Servo leaves
+        many real pages `interactive` for good (a web font or beacon that never
+        finishes) and waiting there for `complete` only burns the timeout; or
+        whatever state the page reached by the deadline. Raises TimeoutError
+        if no new document arrived at all. On commit a best-effort
+        JS error collector is injected (see get_errors). When `settle` is true we
+        additionally wait_for_load() so SPAs that mutate the DOM after
+        readyState=complete (e.g. hydration) have settled before we return —
+        handy when the immediate next read is <title>/content.
         """
-        prev = self.eval_js("return document.URL")
-        self._cmd("POST", "/url", {"url": url})
+        token = uuid.uuid4().hex
+        # The page's own URL parser decides whether this is a fragment-only
+        # change, so host case, default ports and relative URLs compare the way
+        # the navigation will treat them.
+        prev, fragment_only = self.eval_js(
+            "document.__servoAgentNav = arguments[0];"
+            "let fragmentOnly = false;"
+            "try {"
+            "  const to = new URL(arguments[1], document.URL), at = new URL(document.URL);"
+            "  fragmentOnly = to.hash !== '' && to.href.split('#')[0] === at.href.split('#')[0];"
+            "} catch (_) {}"
+            "return [document.URL, fragmentOnly];",
+            [token, url],
+        )
+        self.eval_js("window.location.assign(arguments[0]); return true", [url])
         deadline = time.monotonic() + timeout
-        target = url.split("#", 1)[0].rstrip("/")
         state = "unknown"
         committed = False
-        while time.monotonic() < deadline:
-            cur = (self.eval_js("return document.URL") or "").split("#", 1)[0].rstrip("/")
-            state = self.eval_js("return document.readyState") or "unknown"
-            committed = cur == target or (cur != prev and cur != "about:blank")
+        last_error: RuntimeError | None = None
+        shape: list | None = None
+        shape_since = 0.0
+        while True:
+            try:
+                same_document, state, *now_shape = self.eval_js(
+                    "return [document.__servoAgentNav === arguments[0], "
+                    "document.readyState, document.getElementsByTagName('*').length, "
+                    "document.body ? document.body.scrollHeight : 0]",
+                    [token],
+                )
+                last_error = None
+            except RuntimeError as exc:
+                # The old document can go away mid-command while the new one
+                # commits. That is the navigation happening; look again.
+                same_document, state, now_shape, last_error = True, "unknown", None, exc
+            # Once a new document has been seen, a later failed poll does not
+            # undo that: the navigation committed.
+            committed = committed or fragment_only or not same_document
+            now = time.monotonic()
             if committed and state == "complete":
                 break
+            if committed and state == "interactive":
+                if now_shape != shape:
+                    shape, shape_since = now_shape, now
+                elif now - shape_since >= self._INTERACTIVE_QUIET_S:
+                    break
+            else:
+                shape = None
+            if now >= deadline:
+                break
             time.sleep(0.2)
-        if committed:
-            self._install_error_collector()
+        if not committed:
+            raise TimeoutError(
+                f"navigation to {url!r} did not commit within {timeout}s (still on {prev!r})"
+            ) from last_error
+        self._install_error_collector()
         if settle:
             remaining = max(1.0, deadline - time.monotonic())
             state = self.wait_for_load(timeout=remaining)
@@ -233,9 +307,12 @@ class ServoBrowser:
         frameworks that finish hydrating after the initial load event, which is
         when reading <title>/content too early returns the pre-hydration shell.
 
-        Returns the final readyState ('complete' on success). Falls back to the
-        last observed readyState if `timeout` elapses first (does not raise, so a
-        slow page still yields whatever has rendered).
+        Returns the final readyState ('complete' on success). A page that is
+        still `interactive` but whose DOM has not changed for
+        _INTERACTIVE_QUIET_S returns 'interactive' then, rather than waiting
+        out the timeout for a load that may never finish. Falls back to the
+        last observed readyState if `timeout` elapses first (does not raise, so
+        a slow page still yields whatever has rendered).
         """
         deadline = time.monotonic() + timeout
         # Sample (elementCount, scrollHeight); DOM is "quiet" when this is stable.
@@ -250,13 +327,15 @@ class ServoBrowser:
             state = self.eval_js("return document.readyState") or "unknown"
             sig = self.eval_js(sig_js)
             now = time.monotonic()
-            if state == "complete" and sig == last_sig:
+            settling = state in ("complete", "interactive")
+            if settling and sig == last_sig:
+                needed = quiet if state == "complete" else self._INTERACTIVE_QUIET_S
                 if quiet_since is None:
                     quiet_since = now
-                elif now - quiet_since >= quiet:
+                elif now - quiet_since >= needed:
                     return state
             else:
-                quiet_since = now if state == "complete" else None
+                quiet_since = now if settling else None
             last_sig = sig
             time.sleep(poll)
         return state

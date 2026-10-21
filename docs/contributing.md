@@ -39,8 +39,17 @@ export SERVOSHELL=/path/to/servoshell
 uv run pytest
 ```
 
-Discovery order is `$SERVOSHELL` → `PATH` → a sibling `servo/` checkout — the
+Discovery order is `$SERVOSHELL` → `PATH` → a built `servo/` checkout beside
+this repository (or beside any directory above the installed package) — the
 same as the runtime.
+
+## Contributor License Agreement
+
+Before your first pull request can merge, you sign the
+[CLA](https://github.com/parker-brown-family/servo-agent/blob/main/CLA.md) once,
+by posting the reply the CLA Assistant bot asks for. It grants Brown Family
+Sports Inc. the rights it lists in addition to the Apache-2.0 license, which
+stays in force for everyone.
 
 ## House rules
 

@@ -157,6 +157,79 @@ def test_read_native(browser, sample_url: str) -> None:
     assert any("example.com" in link["href"] for link in out["links"])
 
 
+def _fixture_url(name: str) -> str:
+    from pathlib import Path
+
+    return (Path(__file__).parent / "fixtures" / name).resolve().as_uri()
+
+
+def test_click_follows_a_link_and_the_destination_reads(browser) -> None:
+    # Issue #4: the engine rejected the click request itself (empty body → 400).
+    browser.navigate(_fixture_url("link_source.html"))
+    browser.click_selector("a#next")
+    assert browser.title() == "Link Destination — servo-agent tests"
+    assert "The click arrived" in browser_read(browser)
+
+
+def test_back_returns_to_the_previous_page(browser) -> None:
+    browser.navigate(_fixture_url("link_source.html"))
+    browser.navigate(_fixture_url("link_destination.html"))
+    browser.back()
+    assert browser.title() == "Link Source — servo-agent tests"
+
+
+def test_reload_replaces_the_document(browser) -> None:
+    browser.navigate(_fixture_url("link_source.html"))
+    browser.eval_js("document.__staleMarker = true; return 1")
+    browser.reload()
+    assert browser.eval_js("return document.__staleMarker === undefined")
+
+
+@pytest.mark.xfail(
+    reason=(
+        "Servo engine bug (#5): the window a click navigated away from keeps "
+        "WebDriver's load-status sender, so after back() a refresh receives a "
+        "stray NavigationStart and answers 500"
+    ),
+    strict=False,
+)
+def test_reload_after_click_and_back() -> None:
+    from servo_agent.browser import ServoBrowser
+
+    # Its own engine: the failure leaves the session's load-status channel dirty.
+    with ServoBrowser(headless=True) as b:
+        b.navigate(_fixture_url("link_source.html"))
+        b.click_selector("a#next")
+        b.back()
+        b.reload()
+        assert b.title() == "Link Source — servo-agent tests"
+
+
+def test_reopening_the_same_url_reads_the_new_document(browser, sample_url: str) -> None:
+    # The old document reports the same URL and `complete`; a navigate() that
+    # trusted those returned before the new one arrived, and the next read hit
+    # a document mid-teardown.
+    browser.navigate(sample_url)
+    browser.eval_js("document.__staleMarker = true; return 1")
+    for _ in range(5):
+        browser.navigate(sample_url)
+        assert browser.eval_js("return document.__staleMarker === undefined")
+        assert browser.element_text(browser.find_all("h1")[0]) == "Primary Title"
+
+
+def test_fragment_navigation_keeps_the_document(browser, sample_url: str) -> None:
+    # `#anchor` on the page you are on scrolls; no new document arrives, so the
+    # token never disappears and navigate() must recognise the case up front.
+    import time
+
+    browser.navigate(sample_url)
+    browser.eval_js("document.__sameDocument = true; return 1")
+    started = time.monotonic()
+    assert browser.navigate(sample_url + "#data", timeout=10) == "complete"
+    assert time.monotonic() - started < 5
+    assert browser.eval_js("return document.__sameDocument === true")
+
+
 def browser_read(browser) -> str:
     from servo_agent.distill import distill
 

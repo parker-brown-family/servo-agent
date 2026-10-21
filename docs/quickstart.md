@@ -2,9 +2,14 @@
 
 ## Install
 
+`servo-agent` is not on PyPI yet; install it from the repository:
+
 ```bash
-uv tool install servo-agent          # or: pipx install servo-agent
+uv tool install git+https://github.com/parker-brown-family/servo-agent
 ```
+
+(`pipx install git+https://github.com/parker-brown-family/servo-agent` works too.
+From a clone, `uv sync` and prefix commands with `uv run`.)
 
 You also need a built `servoshell`. Either put it on `PATH`, set `$SERVOSHELL`,
 or check out the [Servo](https://github.com/servo/servo) repo next to this one and:
@@ -13,8 +18,11 @@ or check out the [Servo](https://github.com/servo/servo) repo next to this one a
 ./mach build -d --media-stack dummy  # -> target/debug/servoshell
 ```
 
-`servo-agent` auto-discovers the binary via `$SERVOSHELL` → `PATH` → a sibling
-`servo/` checkout (`../servo/target/{debug,release}/servoshell`).
+`servo-agent` discovers the binary via `$SERVOSHELL` → `PATH` → a built `servo/`
+checkout (`servo/target/{debug,release}/servoshell`) beside this repository or
+beside any directory above the installed package. `read_native` additionally
+needs the `t3/native-read` branch of
+[our Servo fork](https://github.com/parker-brown-family/servo/tree/t3/native-read).
 
 ## Prove the stack
 
@@ -54,6 +62,12 @@ servo-agent serve          # MCP over stdio
 ### Wire into Claude Code
 
 ```bash
+claude mcp add servo-agent -s user -- servo-agent serve
+```
+
+From a clone:
+
+```bash
 claude mcp add servo-agent -s user -- \
   uv run --project /path/to/servo-agent servo-agent serve
 ```
@@ -70,6 +84,6 @@ args = ["run", "--project", "/path/to/servo-agent", "servo-agent", "serve"]
 > server. Validate harness edits without a restart via `servo-agent selftest`.
 
 Once wired in, the agent gets the tools listed in the [API reference](api.md):
-`open_url`, `read_page`, `find`, `wait_for_selector`, `click`, `type_text`,
-`fill_form`, `scroll`, `extract_links`, `extract_table`, `eval_js`,
-`screenshot`, and `status`.
+`open_url`, `read_page`, `read_native`, `find`, `wait_for_selector`,
+`wait_for_load`, `get_errors`, `click`, `type_text`, `fill_form`, `scroll`,
+`extract_links`, `extract_table`, `eval_js`, `screenshot`, and `status`.

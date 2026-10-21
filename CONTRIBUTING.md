@@ -53,6 +53,14 @@ docs/              mkdocs documentation
 CI runs lint + unit tests on every PR. Maintainers may run the integration suite
 on a runner with a built engine.
 
+## Contributor License Agreement
+
+Before your first pull request can merge, you sign the [CLA](CLA.md) once. The
+CLA Assistant bot comments on the PR with the sentence to post as a reply, and
+every later PR is accepted without signing again. The CLA gives Brown Family
+Sports Inc. the rights it lists *in addition to* the Apache-2.0 license, which
+stays in force for everyone (CLA section 8).
+
 ## Reporting bugs / requesting features
 
 Use the [issue templates](https://github.com/parker-brown-family/servo-agent/issues/new/choose).
@@ -61,5 +69,6 @@ public issue.
 
 ## License
 
-By contributing, you agree that your contributions are licensed under the
-project's [Apache-2.0](LICENSE) license.
+Contributions are licensed to the public under the project's
+[Apache-2.0](LICENSE) license, with the additional grant described in the
+[CLA](CLA.md).
