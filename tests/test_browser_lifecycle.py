@@ -87,15 +87,19 @@ class _FakePage:
     `arrives_after` is how many readiness polls still see the OLD document;
     `None` means the new document never arrives. The old document always
     reports `complete`, which is exactly what made the URL a useless signal.
+    `growing` makes the new document's DOM change on every poll.
     """
 
-    def __init__(self, url: str, *, arrives_after: int | None, new_state: str = "complete"):
+    def __init__(self, url: str, *, arrives_after: int | None, new_state: str = "complete",
+                 growing: bool = False):
         self.url = url
         self.arrives_after = arrives_after
         self.new_state = new_state
+        self.growing = growing
         self.token: str | None = None
         self.assigned: str | None = None
         self.polls = 0
+        self.clock = {"now": 0.0}
 
     def eval_js(self, script: str, args: list | None = None):
         if script.startswith("document.__servoAgentNav = "):
@@ -107,8 +111,9 @@ class _FakePage:
         if "__servoAgentNav ===" in script:
             self.polls += 1
             if self.arrives_after is not None and self.polls > self.arrives_after:
-                return [False, self.new_state]  # a new document: no token on it
-            return [args[0] == self.token, "complete"]  # still the old document
+                elements = 40 + (self.polls if self.growing else 0)
+                return [False, self.new_state, elements, 900]  # new document: no token
+            return [args[0] == self.token, "complete", 12, 300]  # still the old document
         return "ok"  # the error collector
 
 
@@ -121,7 +126,7 @@ def _navigating_browser(monkeypatch, tmp_path, page: _FakePage) -> ServoBrowser:
         raise AssertionError(f"navigate() must not call WebDriver directly: {args}")
 
     monkeypatch.setattr(b, "_cmd", no_raw_webdriver)  # in particular, no POST /url
-    clock = {"now": 0.0}
+    clock = page.clock
 
     def tick() -> float:
         clock["now"] += 0.25
@@ -150,12 +155,69 @@ def test_reopening_the_same_url_waits_for_the_new_document(monkeypatch, tmp_path
     assert page.polls == 4, "returned while the old document was still live"
 
 
-def test_page_that_never_completes_returns_within_the_timeout(monkeypatch, tmp_path) -> None:
-    """A page stuck at `interactive` is readable; report its state, don't hang."""
+def test_still_interactive_page_returns_without_waiting_out_the_timeout(
+    monkeypatch, tmp_path
+) -> None:
+    """servo.org/about: readable in ~2 s, `interactive` forever (fonts never finish)."""
     page = _FakePage("about:blank", arrives_after=0, new_state="interactive")
     b = _navigating_browser(monkeypatch, tmp_path, page)
 
-    assert b.navigate("https://hcvideo.app/", timeout=2.0) == "interactive"
+    assert b.navigate("https://servo.org/about/", timeout=20.0) == "interactive"
+    quiet = browser_mod.ServoBrowser._INTERACTIVE_QUIET_S
+    assert quiet <= page.clock["now"] < quiet + 2.0, "should stop once the DOM is still"
+
+
+def test_interactive_page_still_changing_waits_until_the_deadline(monkeypatch, tmp_path) -> None:
+    """A DOM that keeps changing is still loading; give it the whole timeout."""
+    page = _FakePage("about:blank", arrives_after=0, new_state="interactive", growing=True)
+    b = _navigating_browser(monkeypatch, tmp_path, page)
+
+    assert b.navigate("https://hcvideo.app/", timeout=6.0) == "interactive"
+    assert page.clock["now"] >= 6.0
+
+
+def _settling_browser(monkeypatch, tmp_path, states: list[str]) -> tuple[ServoBrowser, dict]:
+    """A browser whose page reports `states` in turn (the last repeats), DOM still."""
+    b = _browser_with_binary(tmp_path)
+    seq = iter(states)
+    current = {"state": states[0]}
+
+    def fake_eval(script: str, args: list | None = None):
+        if "readyState" in script:
+            current["state"] = next(seq, current["state"])
+            return current["state"]
+        return [40, 900]  # element count, scrollHeight: unchanged
+
+    clock = {"now": 0.0}
+
+    def tick() -> float:
+        clock["now"] += 0.1
+        return clock["now"]
+
+    monkeypatch.setattr(b, "eval_js", fake_eval)
+    monkeypatch.setattr(browser_mod.time, "monotonic", tick)
+    monkeypatch.setattr(browser_mod.time, "sleep", lambda _seconds: None)
+    return b, clock
+
+
+def test_wait_for_load_stops_on_a_still_interactive_page(monkeypatch, tmp_path) -> None:
+    b, clock = _settling_browser(monkeypatch, tmp_path, ["interactive"])
+
+    assert b.wait_for_load(timeout=15.0) == "interactive"
+    assert clock["now"] < 5.0, "a still DOM at `interactive` should not wait out 15 s"
+
+
+def test_wait_for_load_waits_out_a_loading_page(monkeypatch, tmp_path) -> None:
+    b, clock = _settling_browser(monkeypatch, tmp_path, ["loading"])
+
+    assert b.wait_for_load(timeout=3.0) == "loading"
+    assert clock["now"] >= 3.0
+
+
+def test_wait_for_load_still_prefers_complete(monkeypatch, tmp_path) -> None:
+    b, _clock = _settling_browser(monkeypatch, tmp_path, ["interactive", "complete"])
+
+    assert b.wait_for_load(timeout=15.0) == "complete"
 
 
 def test_navigation_that_never_commits_raises(monkeypatch, tmp_path) -> None:

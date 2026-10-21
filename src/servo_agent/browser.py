@@ -89,6 +89,10 @@ class ServoBrowser:
     # document can't ask the engine for an enormous surface.
     _MAX_FULLPAGE_PX = 20000
 
+    # How long a committed page may sit `interactive` with an unchanged DOM
+    # before navigate() treats it as loaded (see navigate).
+    _INTERACTIVE_QUIET_S = 2.0
+
     def __init__(self, binary: str | Path | None = None, headless: bool = True) -> None:
         self.binary = Path(binary) if binary else find_servoshell()
         self.headless = headless
@@ -215,9 +219,12 @@ class ServoBrowser:
         it. A fragment-only change (same page, new `#anchor`) never replaces the
         document, so it counts as committed at once.
 
-        Returns the new document's readyState: `complete`, or `interactive` /
-        `loading` when the page was still going at the deadline. Raises
-        TimeoutError if no new document arrived at all. On commit a best-effort
+        Returns the new document's readyState: `complete`; `interactive` once
+        its DOM has been still for _INTERACTIVE_QUIET_S, because Servo leaves
+        many real pages `interactive` for good (a web font or beacon that never
+        finishes) and waiting there for `complete` only burns the timeout; or
+        whatever state the page reached by the deadline. Raises TimeoutError
+        if no new document arrived at all. On commit a best-effort
         JS error collector is injected (see get_errors). When `settle` is true we
         additionally wait_for_load() so SPAs that mutate the DOM after
         readyState=complete (e.g. hydration) have settled before we return —
@@ -233,20 +240,33 @@ class ServoBrowser:
         state = "unknown"
         committed = False
         last_error: RuntimeError | None = None
+        shape: list | None = None
+        shape_since = 0.0
         while True:
             try:
-                same_document, state = self.eval_js(
+                same_document, state, *now_shape = self.eval_js(
                     "return [document.__servoAgentNav === arguments[0], "
-                    "document.readyState]",
+                    "document.readyState, document.getElementsByTagName('*').length, "
+                    "document.body ? document.body.scrollHeight : 0]",
                     [token],
                 )
                 last_error = None
             except RuntimeError as exc:
                 # The old document can go away mid-command while the new one
                 # commits. That is the navigation happening; look again.
-                same_document, state, last_error = True, "unknown", exc
+                same_document, state, now_shape, last_error = True, "unknown", None, exc
             committed = fragment_only or not same_document
-            if (committed and state == "complete") or time.monotonic() >= deadline:
+            now = time.monotonic()
+            if committed and state == "complete":
+                break
+            if committed and state == "interactive":
+                if now_shape != shape:
+                    shape, shape_since = now_shape, now
+                elif now - shape_since >= self._INTERACTIVE_QUIET_S:
+                    break
+            else:
+                shape = None
+            if now >= deadline:
                 break
             time.sleep(0.2)
         if not committed:
@@ -276,9 +296,12 @@ class ServoBrowser:
         frameworks that finish hydrating after the initial load event, which is
         when reading <title>/content too early returns the pre-hydration shell.
 
-        Returns the final readyState ('complete' on success). Falls back to the
-        last observed readyState if `timeout` elapses first (does not raise, so a
-        slow page still yields whatever has rendered).
+        Returns the final readyState ('complete' on success). A page that is
+        still `interactive` but whose DOM has not changed for
+        _INTERACTIVE_QUIET_S returns 'interactive' then, rather than waiting
+        out the timeout for a load that may never finish. Falls back to the
+        last observed readyState if `timeout` elapses first (does not raise, so
+        a slow page still yields whatever has rendered).
         """
         deadline = time.monotonic() + timeout
         # Sample (elementCount, scrollHeight); DOM is "quiet" when this is stable.
@@ -293,13 +316,15 @@ class ServoBrowser:
             state = self.eval_js("return document.readyState") or "unknown"
             sig = self.eval_js(sig_js)
             now = time.monotonic()
-            if state == "complete" and sig == last_sig:
+            settling = state in ("complete", "interactive")
+            if settling and sig == last_sig:
+                needed = quiet if state == "complete" else self._INTERACTIVE_QUIET_S
                 if quiet_since is None:
                     quiet_since = now
-                elif now - quiet_since >= quiet:
+                elif now - quiet_since >= needed:
                     return state
             else:
-                quiet_since = now if state == "complete" else None
+                quiet_since = now if settling else None
             last_sig = sig
             time.sleep(poll)
         return state

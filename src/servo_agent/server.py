@@ -99,7 +99,9 @@ def build_mcp(host: str | None = None, port: int | None = None):
         """Wait for the page to settle: readyState=complete AND a quiescent DOM.
 
         Stronger than readyState alone — waits out post-load SPA hydration so a
-        following read sees the rendered page. Returns the final readyState.
+        following read sees the rendered page. Returns the final readyState. A
+        page stuck at `interactive` (a font or beacon that never finishes) whose
+        DOM stays unchanged returns after ~2 s with settled=false.
         """
         state = _BROWSER.wait_for_load(timeout=timeout)
         return json.dumps({"readyState": state, "settled": state == "complete"})
