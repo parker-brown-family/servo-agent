@@ -1,6 +1,8 @@
-"""ServoBrowser — drive our Servo fork over its built-in W3C WebDriver server.
+"""ServoBrowser — drive Servo over its built-in W3C WebDriver server.
 
-Owns one `servoshell` process + one WebDriver session, launched lazily. Wraps
+Works with Servo's official builds (`servo-agent install-servo`) and with any
+servoshell built from source. Owns one `servoshell` process + one WebDriver
+session, launched lazily. Wraps
 the W3C protocol in agent-shaped primitives (navigate, read, find, click,
 type, extract, wait, scroll) plus the lifecycle plumbing. The MCP server and
 the examples are thin layers over this class.
@@ -9,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -18,6 +21,8 @@ from pathlib import Path
 from typing import Any
 
 import requests
+
+from .engines import newest_installed
 
 # W3C element reference key (returned by find, accepted by /element/{id}).
 W3C_ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf"
@@ -52,34 +57,64 @@ return 'ok';
 
 
 def find_servoshell() -> Path | None:
-    """Locate servoshell: $SERVOSHELL, PATH, or a built `servo/` checkout nearby."""
+    """Locate servoshell, first match wins.
+
+    $SERVOSHELL, then `servoshell` on PATH, then the newest engine installed by
+    `servo-agent install-servo`, then a `servo/` directory beside or above this
+    package (an unpacked release or a source build).
+    """
     env = os.environ.get("SERVOSHELL")
     if env and Path(env).exists():
         return Path(env)
     on_path = shutil.which("servoshell")
     if on_path:
         return Path(on_path)
+    installed = newest_installed()
+    if installed:
+        return installed
     return _servoshell_beside(Path(__file__).resolve())
 
 
 def _servoshell_beside(start: Path) -> Path | None:
-    """The nearest `servo/target/{debug,release}/servoshell` beside `start` or above it.
+    """The nearest `servo/` engine beside `start` or above it.
 
-    From a source checkout that is the sibling of this repo (…/servo-agent →
-    …/servo). When servo-agent is installed into another project's virtualenv
-    (servo-reader does this), the package lives under that project's `.venv`,
-    so walking up finds a `servo/` checkout beside that project instead.
+    That is an unpacked release archive (`servo/servoshell`) or a source build
+    (`servo/target/{release,debug}/servoshell`, release first because it is the
+    faster engine). From a source checkout this finds the sibling of this repo
+    (…/servo-agent → …/servo). When servo-agent is installed into another
+    project's virtualenv (servo-reader does this), the package lives under that
+    project's `.venv`, so walking up finds a `servo/` beside that project instead.
     """
     for parent in start.parents:
-        for profile in ("debug", "release"):
-            cand = parent / "servo" / "target" / profile / "servoshell"
-            if cand.exists():
+        for cand in (parent / "servo" / "servoshell",
+                     parent / "servo" / "target" / "release" / "servoshell",
+                     parent / "servo" / "target" / "debug" / "servoshell"):
+            if cand.is_file():
                 return cand
     return None
 
 
 class ServoNotBuilt(RuntimeError):
     """Raised when no servoshell binary can be found."""
+
+
+class ScreenshotUnavailable(RuntimeError):
+    """Servo would not capture the page; the message says what it was waiting on."""
+
+
+# Images that have not finished loading lose their source, so Servo stops waiting
+# for them before a screenshot. Returns the URLs it dropped.
+_DROP_PENDING_IMAGES_JS = r"""
+const dropped = [];
+for (const img of document.images) {
+  if (!img.complete) {
+    dropped.push(img.currentSrc || img.src);
+    img.removeAttribute('srcset');
+    img.removeAttribute('src');
+  }
+}
+return dropped;
+"""
 
 
 class ServoBrowser:
@@ -90,10 +125,32 @@ class ServoBrowser:
     _MAX_FULLPAGE_PX = 20000
 
     # How long a committed page may sit `interactive` with an unchanged DOM
-    # before navigate() treats it as loaded (see navigate).
-    _INTERACTIVE_QUIET_S = 2.0
+    # before navigate() treats it as loaded (see navigate). Half a second is the
+    # quiet a `complete` page gets from wait_for_load. It was 2 s, which every
+    # open of a page that never fires `load` paid in full (issue #11: servo.org
+    # is readable at about 0.6 s on Servo 0.7 and open_url took 2.9 s).
+    _INTERACTIVE_QUIET_S = 0.5
+    # wait_for_load() is the caller asking for a settled page, so a page stuck at
+    # `interactive` gets longer there before it counts as settled.
+    _SETTLE_INTERACTIVE_QUIET_S = 2.0
 
-    def __init__(self, binary: str | Path | None = None, headless: bool = True) -> None:
+    # How long shutdown() waits for servoshell to exit, after Servo's shutdown
+    # route and again after SIGTERM, before killing it. Servo 0.7 catches SIGTERM
+    # and SIGINT and then never exits when headless (measured 2026-10-22: still
+    # running 12 s later, where the June 2026 build exited in 0.12 s).
+    _TERM_GRACE_S = 1.0
+
+    # Above this PSS, navigate() restarts the engine it owns before opening the
+    # next page. Servo's memory climbs with every page in one window: 0.7.0 went
+    # from 334 MB to 5,279 MB over 100 navigations (2026-10-22), and closing the
+    # window gave back only a third of it, so only a fresh process bounds it.
+    # The check comes before a page and one page can add more: the largest jump
+    # measured was 262 MB (Wikipedia), so 700 keeps the peak under 1 GB.
+    # $SERVO_AGENT_MEMORY_CAP_MB overrides it; 0 turns the restarts off.
+    DEFAULT_MEMORY_CAP_MB = 700
+
+    def __init__(self, binary: str | Path | None = None, headless: bool = True,
+                 memory_cap_mb: int | None = None) -> None:
         self.binary = Path(binary) if binary else find_servoshell()
         self.headless = headless
         self.proc: subprocess.Popen | None = None
@@ -101,6 +158,17 @@ class ServoBrowser:
         self.base: str | None = None
         self.sid: str | None = None
         self.external = False   # True when attached to an externally-run engine
+        if memory_cap_mb is None:
+            memory_cap_mb = int(os.environ.get("SERVO_AGENT_MEMORY_CAP_MB")
+                                or self.DEFAULT_MEMORY_CAP_MB)
+        self.memory_cap_mb = memory_cap_mb
+        # What the last navigate() restarted, or None if it restarted nothing.
+        self.last_restart: dict[str, Any] | None = None
+        # The last screenshot's size, and for a full page whether it was cut short.
+        self.last_screenshot: dict[str, Any] | None = None
+        # "0.7.0" from the session's user agent; None until a session exists or if
+        # the engine does not say (Servo's own browserVersion is a fixed "0.0.1").
+        self.engine_version: str | None = None
 
     # -- context manager ---------------------------------------------------- #
     def __enter__(self) -> ServoBrowser:
@@ -139,13 +207,22 @@ class ServoBrowser:
         else:
             if not self.binary or not Path(self.binary).exists():
                 raise ServoNotBuilt(
-                    "servoshell binary not found. Build it "
-                    "(`./mach build -d --media-stack dummy` in the servo fork), set "
-                    "$SERVOSHELL to its path, or point $SERVO_WEBDRIVER at a running engine."
+                    "servoshell not found. Install Servo's official build with "
+                    "`servo-agent install-servo`, set $SERVOSHELL to a servoshell binary, "
+                    "or point $SERVO_WEBDRIVER at a running engine."
                 )
             self.port = self._free_port()
             self.base = f"http://127.0.0.1:{self.port}"
-            cmd = [str(self.binary), "--webdriver", str(self.port), "about:blank"]
+            # --temporary-storage gives every engine a profile of its own that dies
+            # with it. Without it, every servoshell on the machine shares cookies,
+            # localStorage and caches in ~/.config/servo/default.
+            # --screen-size: a headless window can grow to twice the screen, and the
+            # default screen is twice the 1024x740 window, so a full-page shot was
+            # cut at 2,960 px without a word. This screen lets it reach
+            # _MAX_FULLPAGE_PX (measured 2026-10-22: a 6,040 px page came back whole).
+            cmd = [str(self.binary), "--temporary-storage",
+                   f"--screen-size=2048x{self._MAX_FULLPAGE_PX // 2}",
+                   "--webdriver", str(self.port), "about:blank"]
             if self.headless:
                 cmd.insert(1, "--headless")
             self.proc = subprocess.Popen(
@@ -153,21 +230,76 @@ class ServoBrowser:
             )
             self._wait_port(self.port)
         caps = {"capabilities": {"alwaysMatch": {"browserName": "servo"}}}
-        self.sid = self._raw("POST", "/session", caps)["sessionId"]
+        session = self._raw("POST", "/session", caps)
+        self.sid = session["sessionId"]
+        agent = (session.get("capabilities") or {}).get("userAgent") or ""
+        found = re.search(r"\bServo/(\S+)", agent)
+        self.engine_version = found[1] if found else None
 
     @staticmethod
     def _wait_port(port: int, timeout: float = 30.0) -> None:
+        # servoshell 0.7 listens about 0.2-0.4 s after launch; a fine poll keeps
+        # that from rounding up to a whole poll interval on every (re)start.
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
                 with socket.create_connection(("127.0.0.1", port), timeout=1):
                     return
             except OSError:
-                time.sleep(0.5)
+                time.sleep(0.05)
         raise RuntimeError(f"WebDriver port {port} never came up")
 
+    def memory_mb(self) -> int | None:
+        """The owned engine's PSS in MB, read from /proc.
+
+        None when that is unknown: no engine running, an attached engine this
+        process does not own, or a system without /proc/<pid>/smaps_rollup.
+        """
+        if self.external or not self.proc or self.proc.poll() is not None:
+            return None
+        try:
+            with open(f"/proc/{self.proc.pid}/smaps_rollup") as f:
+                for line in f:
+                    if line.startswith("Pss:"):
+                        return round(int(line.split()[1]) / 1024)
+        except (OSError, ValueError):
+            return None
+        return None
+
+    def _restart_if_over_cap(self) -> None:
+        """Before a navigation, replace an engine whose memory passed the cap."""
+        self.last_restart = None
+        if not self.memory_cap_mb:
+            return
+        used = self.memory_mb()
+        if used is None or used <= self.memory_cap_mb:
+            return
+        self.shutdown()
+        self.ensure_started()
+        self.last_restart = {
+            "reason": f"the engine used {used} MB, over the {self.memory_cap_mb} MB cap",
+            "pss_mb": used, "cap_mb": self.memory_cap_mb,
+            "lost": "cookies, history and the page that was open",
+        }
+
     def shutdown(self) -> None:
-        if self.sid and self.base:
+        """End the session; stop the engine too if this browser started it.
+
+        An engine we own is asked to quit through Servo's own WebDriver route,
+        `DELETE /session/{id}/servo/shutdown`, which upstream's test harness uses
+        too: Servo 0.7 exits on it in about 0.2 s (measured 2026-10-22). Signals
+        are the fallback: SIGTERM, then a kill once _TERM_GRACE_S has passed.
+        An attached engine belongs to someone else, so only its session ends.
+        """
+        owned = self.proc is not None and self.proc.poll() is None
+        if owned and self.base:
+            try:
+                requests.delete(f"{self.base}/session/{self.sid or 'none'}/servo/shutdown",
+                                timeout=5)
+                self.proc.wait(timeout=self._TERM_GRACE_S)
+            except (requests.RequestException, subprocess.TimeoutExpired):
+                pass  # an engine without the route, or one that hung: signals below
+        elif self.sid and self.base:
             try:
                 self._raw("DELETE", f"/session/{self.sid}")
             except Exception:  # noqa: BLE001 — best effort
@@ -176,9 +308,10 @@ class ServoBrowser:
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
             try:
-                self.proc.wait(timeout=5)
+                self.proc.wait(timeout=self._TERM_GRACE_S)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+                self.proc.wait(timeout=5)
         self.proc = None
 
     # -- raw W3C transport -------------------------------------------------- #
@@ -229,7 +362,11 @@ class ServoBrowser:
         additionally wait_for_load() so SPAs that mutate the DOM after
         readyState=complete (e.g. hydration) have settled before we return —
         handy when the immediate next read is <title>/content.
+
+        An engine this browser owns is first restarted if its memory passed
+        `memory_cap_mb`; `last_restart` then says so (see _restart_if_over_cap).
         """
+        self._restart_if_over_cap()
         token = uuid.uuid4().hex
         # The page's own URL parser decides whether this is a fragment-only
         # change, so host case, default ports and relative URLs compare the way
@@ -309,7 +446,7 @@ class ServoBrowser:
 
         Returns the final readyState ('complete' on success). A page that is
         still `interactive` but whose DOM has not changed for
-        _INTERACTIVE_QUIET_S returns 'interactive' then, rather than waiting
+        _SETTLE_INTERACTIVE_QUIET_S returns 'interactive' then, rather than waiting
         out the timeout for a load that may never finish. Falls back to the
         last observed readyState if `timeout` elapses first (does not raise, so
         a slow page still yields whatever has rendered).
@@ -329,7 +466,7 @@ class ServoBrowser:
             now = time.monotonic()
             settling = state in ("complete", "interactive")
             if settling and sig == last_sig:
-                needed = quiet if state == "complete" else self._INTERACTIVE_QUIET_S
+                needed = quiet if state == "complete" else self._SETTLE_INTERACTIVE_QUIET_S
                 if quiet_since is None:
                     quiet_since = now
                 elif now - quiet_since >= needed:
@@ -368,22 +505,6 @@ class ServoBrowser:
             "e.setAttribute('src', e.src);"
             "return document.documentElement.outerHTML;"
         )
-
-    def read_native(self, timeout: float = 10.0) -> dict[str, Any] | None:
-        """Read the page natively via Servo's `/servo/agent/read` extension.
-
-        Returns ``{url, title, text, headings, links}`` computed inside the engine
-        (no `execute_script(outerHTML)` round-trip), or ``None`` if the running
-        servoshell predates the endpoint (HTTP 404) — callers fall back to
-        ``read_html()`` + :func:`servo_agent.distill.distill`.
-        """
-        self.ensure_started()
-        resp = requests.post(
-            f"{self.base}/session/{self.sid}/servo/agent/read", json={}, timeout=timeout
-        )
-        if resp.status_code != 200:
-            return None  # 404 → endpoint absent; other errors → fall back gracefully
-        return resp.json().get("value")
 
     # -- elements ----------------------------------------------------------- #
     def find_all(self, selector: str) -> list[str]:
@@ -497,7 +618,7 @@ class ServoBrowser:
         (timers, event handlers, async work, late module evaluation, rejected
         promises), which covers most "this SPA crashed to its error boundary"
         triage. For guaranteed first-byte coverage you'd need native console
-        capture in the engine (tracked separately as T3).
+        capture in the engine, which Servo's WebDriver does not offer.
         """
         # Ensure the collector exists even if the page was reached without
         # navigate() (e.g. a manual eval_js redirect); harmless if already there.
@@ -524,7 +645,17 @@ class ServoBrowser:
           enough to fit it (clamped to _MAX_FULLPAGE_PX so a pathological page
           can't request a gigantic surface), then capture. This approximates a
           full-page shot without scroll-stitching; very tall pages are clamped.
+
+        `last_screenshot` then holds the PNG's width and height and, for a
+        full-page shot, the page's height and whether the shot was cut short.
+
+        Servo will not capture a page while any image is still loading. If it
+        times out on that, the images that never finished are dropped and the
+        capture is tried once more (`last_screenshot["dropped_unfinished_images"]`
+        lists them); if it still cannot, ScreenshotUnavailable says why.
         """
+        self.last_screenshot = None
+        content_h: int | None = None
         if width is not None or height is not None or full_page:
             self.ensure_started()
             cur = self._cmd("GET", "/window/rect")
@@ -533,25 +664,62 @@ class ServoBrowser:
             if full_page:
                 # Lay out at the target width first, then measure true content height.
                 self._cmd("POST", "/window/rect", {"width": w, "height": h})
-                content_h = self.eval_js(
+                content_h = int(self.eval_js(
                     "return Math.max("
                     "document.body ? document.body.scrollHeight : 0,"
                     "document.documentElement ? document.documentElement.scrollHeight : 0,"
                     "document.body ? document.body.offsetHeight : 0)"
-                ) or h
+                ) or h)
                 # Pad for window chrome (the surface is a bit shorter than the
                 # window) so the bottom row isn't clipped; then clamp.
-                h = min(self._MAX_FULLPAGE_PX, int(content_h) + 80)
+                h = min(self._MAX_FULLPAGE_PX, content_h + 80)
             self._cmd("POST", "/window/rect", {"width": w, "height": h})
-        b64 = self._cmd("GET", "/screenshot")
-        Path(path).write_bytes(base64.b64decode(b64))
+        dropped: list[str] = []
+        try:
+            png = base64.b64decode(self._cmd("GET", "/screenshot"))
+        except RuntimeError as exc:
+            # Servo takes a screenshot only once every image on the page has
+            # finished loading, and gives up after 10 s (servo/servo#41764), so
+            # one image that never arrives makes a readable page uncapturable
+            # (issue #3). Such images draw as nothing anyway: drop them, try once
+            # more, and say so.
+            if "Timed out waiting to take screenshot" not in str(exc):
+                raise
+            dropped = self.eval_js(_DROP_PENDING_IMAGES_JS) or []
+            if not dropped:
+                raise ScreenshotUnavailable(
+                    "Servo would not take a screenshot within its 10 s limit, and no "
+                    "unfinished image explains it (a font or stylesheet that never "
+                    f"finishes can); readyState is {self.eval_js('return document.readyState')!r}"
+                ) from exc
+            try:
+                png = base64.b64decode(self._cmd("GET", "/screenshot"))
+            except RuntimeError as again:
+                raise ScreenshotUnavailable(
+                    f"Servo would not take a screenshot even after {len(dropped)} unfinished "
+                    f"image(s) were dropped: {again}") from again
+        Path(path).write_bytes(png)
+        shot: dict[str, Any] = {"width": None, "height": None}
+        if dropped:
+            shot["dropped_unfinished_images"] = dropped[:20]
+        if png[:8] == b"\x89PNG\r\n\x1a\n" and len(png) >= 24:
+            shot["width"] = int.from_bytes(png[16:20], "big")
+            shot["height"] = int.from_bytes(png[20:24], "big")
+        if full_page:
+            shot["page_height"] = content_h
+            shot["cut_short"] = (None if shot["height"] is None or content_h is None
+                                 else shot["height"] < content_h)
+        self.last_screenshot = shot
         return str(Path(path).resolve())
 
     def status(self) -> dict[str, Any]:
         return {
             "binary": str(self.binary) if self.binary else None,
+            "engine_version": self.engine_version,
             "started": self.sid is not None,
             "headless": self.headless,
             "port": self.port,
             "url": self.current_url() if self.sid else None,
+            "memory_mb": self.memory_mb(),
+            "memory_cap_mb": self.memory_cap_mb,  # 0 = restarts turned off
         }

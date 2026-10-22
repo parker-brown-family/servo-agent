@@ -40,13 +40,16 @@ def run_selftest(url: str = "https://news.ycombinator.com") -> int:
         _hdr("screenshot")
         try:
             print(f"  wrote {b.screenshot('servo-selftest.png')}")
+            dropped = (b.last_screenshot or {}).get("dropped_unfinished_images")
+            if dropped:
+                print(f"  (Servo waited on {len(dropped)} image(s) that never finished; "
+                      "dropped them to capture)")
         except RuntimeError as exc:
-            # Some pages remain `interactive` forever because a preload or
-            # analytics request never settles. Servo's screenshot endpoint waits
-            # for every render-blocking resource and times out even though the
-            # page is already readable and interactive. Keep the browser proof,
-            # but make the missing visual evidence impossible to mistake for a
-            # successful capture.
+            # Servo will not capture a page until every image, font and
+            # stylesheet has finished. ServoBrowser drops images that never
+            # finish and tries again; a font or stylesheet that never finishes
+            # still leaves no picture. Keep the browser proof, but make the
+            # missing visual evidence impossible to mistake for a capture.
             print(f"  ⚠ screenshot unavailable: {exc}")
 
     print("\n\033[1;32m✓ self-test passed\033[0m")

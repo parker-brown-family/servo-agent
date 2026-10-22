@@ -164,10 +164,38 @@ def _absolutize_links(soup: Any, base: str) -> bool:
     return changed
 
 
+# Bug 7 — table rows with no <tbody> lose every link (issue #13). Hacker News, and
+# listings and forums laid out the same way, serve <tr> directly inside <table>.
+# A browser's parser inserts the <tbody>, so Servo's DOM has one and read_page kept
+# all 211 links on HN's front page; a plain download has none, and trafilatura
+# returned the page as loose words with 0 links. Insert the <tbody> the way the
+# HTML parser does: each run of rows directly inside a table becomes one section.
+def _insert_implied_tbody(soup: Any) -> bool:
+    changed = False
+    for table in soup.find_all("table"):
+        run: list[Any] = []
+        for child in [*table.children, None]:  # None flushes the last run
+            name = getattr(child, "name", None)
+            if name == "tr":
+                run.append(child)
+                continue
+            if child is not None and name is None and not str(child).strip():
+                continue  # whitespace between rows stays where it is
+            if run:
+                body = soup.new_tag("tbody")
+                run[0].insert_before(body)
+                for row in run:
+                    body.append(row.extract())
+                run = []
+                changed = True
+    return changed
+
+
 def _repair_soup(soup: Any, url: str = "") -> bool:
     """Apply the raw-HTML repairs in place; return whether anything changed."""
     base = _document_base(soup, url)
-    changed = _drop_citation_superscripts(soup)
+    changed = _insert_implied_tbody(soup)
+    changed |= _drop_citation_superscripts(soup)
     changed |= _fill_empty_anchors(soup, base, url)  # sees the original #fragment hrefs
     changed |= _absolutize_links(soup, base)
     return changed
@@ -418,7 +446,7 @@ def _collapse(md: str) -> str:
     return md.strip()
 
 
-def distill(html: str, url: str = "", max_chars: int = 12_000) -> str:
+def distill(html: str, url: str = "", max_chars: int = 12_000, offset: int = 0) -> str:
     """Rendered HTML → clean markdown.
 
     Args:
@@ -426,25 +454,79 @@ def distill(html: str, url: str = "", max_chars: int = 12_000) -> str:
               resolved against ``url`` (or the page's ``<base href>``).
         url:  page URL — the base for relative links; also helps trafilatura
               classify content.
-        max_chars: hard cap; output is truncated with a marker beyond it.
+        max_chars: the most markdown one call returns. A longer page comes in
+              parts, each ending in a marker that names the next part's offset.
+        offset: where in the page's markdown this part starts (0 = the top).
     """
-    md, _ = _distill(html, url, max_chars)
+    md, _ = _distill(html, url, max_chars, offset)
     return md
 
 
-def _distill(html: str, url: str = "", max_chars: int = 12_000) -> tuple[str, dict]:
+# Parts of a long page end on a line, or failing that a space, that is outside
+# every link and fenced code block, so no part splits a URL or a code sample.
+_MD_LINK = re.compile(r"!?\[[^\]\n]*\]\([^)\n]*\)")
+_FENCE_LINE = re.compile(r"^[ \t]{0,3}(?:```|~~~)")
+
+
+def _unsplittable(md: str) -> list[tuple[int, int]]:
+    """Spans of ``md`` a part must not end inside: links and fenced code blocks."""
+    spans = [m.span() for m in _MD_LINK.finditer(md)]
+    pos, fence_at = 0, None
+    for line in md.splitlines(keepends=True):
+        if _FENCE_LINE.match(line):
+            if fence_at is None:
+                fence_at = pos
+            else:
+                spans.append((fence_at, pos + len(line)))
+                fence_at = None
+        pos += len(line)
+    if fence_at is not None:
+        spans.append((fence_at, len(md)))
+    return spans
+
+
+def _part_end(md: str, start: int, max_chars: int) -> int:
+    """Where the part beginning at ``start`` ends: at most ``max_chars`` later.
+
+    A part ends just before a paragraph break, else a line break, else a space,
+    so it ends on text and the next part begins with the break.
+    """
+    limit = start + max_chars
+    if limit >= len(md):
+        return len(md)
+    spans = [s for s in _unsplittable(md) if s[1] > start and s[0] < limit]
+
+    def safe(b: int) -> bool:
+        return not any(s < b < e for s, e in spans)
+
+    floor = start + max_chars // 2  # never trade more than half a part for a nicer cut
+    for wanted in ("\n\n", "\n", " "):
+        for b in range(limit, floor, -1):
+            if md.startswith(wanted, b) and safe(b):
+                return b
+    return limit  # one link or code block longer than half a part: cut it
+
+
+def _distill(html: str, url: str = "", max_chars: int = 12_000,
+             offset: int = 0) -> tuple[str, dict]:
     """:func:`distill` plus structured metadata for the event log.
 
     Returns ``(markdown, meta)`` where ``meta`` records which extractor path won
     (``trafilatura`` | ``fallback`` | ``failed``), the input/output sizes, the
-    compression ratio, and whether the output was truncated.
+    compression ratio, whether the output was truncated, the page's whole
+    markdown length, and where the next part starts (``None`` after the last).
     """
+    if offset < 0:
+        raise ValueError(f"offset must be 0 or more, not {offset}")
     meta: dict = {
         "extractor": None,
         "in_chars": len(html),
         "out_chars": 0,
         "ratio": 0.0,
         "truncated": False,
+        "offset": offset,
+        "total_chars": None,
+        "next_offset": None,
     }
 
     # Raw-HTML repairs (Bugs 2, 4, 6) before extraction so both paths benefit.
@@ -476,9 +558,19 @@ def _distill(html: str, url: str = "", max_chars: int = 12_000) -> tuple[str, di
 
     md = _clean_markdown(md or "")
     md = _collapse(md)
-    if len(md) > max_chars:
-        md = md[:max_chars] + f"\n\n…[truncated at {max_chars} chars]"
-        meta["truncated"] = True
+    total = meta["total_chars"] = len(md)
+    if offset >= total > 0:
+        md = f"…[offset {offset} is past the end of this page's {total} chars]"
+    elif offset or total > max_chars:
+        end = _part_end(md, offset, max_chars)
+        md = md[offset:end]
+        if end < total:
+            # The marker keeps its old shape ("…[truncated at N chars" … "chars]"),
+            # which servo-reader 0.4 and other readers already recognise.
+            md += (f"\n\n…[truncated at {end - offset} chars; the next part starts at "
+                   f"offset {end} of {total} chars]")
+            meta["truncated"] = True
+            meta["next_offset"] = end
     meta["out_chars"] = len(md)
     meta["ratio"] = round(meta["in_chars"] / len(md), 1) if md else 0.0
     return md, meta

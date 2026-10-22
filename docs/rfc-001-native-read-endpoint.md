@@ -1,10 +1,10 @@
 # RFC-001 — Native page-read endpoint (Track T3)
 
-> Status: **implemented (v1)**. The `POST /servo/agent/read` extension is live on
-> the Servo fork (branch `t3/native-read`) and verified end-to-end; the
-> `servo-agent` client exposes it via `ServoBrowser.read_native()` and the
-> `read_native` MCP tool (with a 404 fallback to `read_page`). Adds native
-> page-content extraction without the slow `execute_script(outerHTML)` round-trip.
+> Status: **withdrawn (2026-10-22)**. It was implemented on our Servo fork
+> (branch `t3/native-read`) and verified end-to-end in June 2026. servo-agent
+> now runs on Servo's official builds, which have no such endpoint, so
+> `ServoBrowser.read_native()` and the `read_native` MCP tool were removed in
+> 0.3.0 and `read_page` does the reading. Kept as the record of the design.
 
 ## Goal
 

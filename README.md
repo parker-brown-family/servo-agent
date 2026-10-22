@@ -64,25 +64,28 @@ yet, install from this repository with
 `uv tool install git+https://github.com/parker-brown-family/servo-agent`. To work
 from a clone, run `uv sync` in it and put `uv run` in front of the commands below.
 
-You also need a built `servoshell`, Servo's browser binary. Put it on `PATH`, set
-`$SERVOSHELL`, or check out [Servo](https://github.com/servo/servo) next to this
-repository and build it:
+You also need `servoshell`, Servo's browser binary. On Linux, servo-agent installs
+Servo's official build for you and checks it against the SHA-256 that Servo
+publishes beside it:
 
 ```bash
-./mach build -d --media-stack dummy  # -> target/debug/servoshell
+servo-agent install-servo                  # the latest release
+servo-agent install-servo --version 0.7.0  # or a given one
 ```
 
-`servo-agent` looks for it in this order: `$SERVOSHELL`, then `PATH`, then a built
-`servo/` checkout beside this repository, or beside any directory above the
-installed package (so a project that installs servo-agent, such as
-[servo-reader](https://github.com/parker-brown-family/servo-reader), finds a
-`servo/` checkout beside itself).
+Engines go in `~/.local/share/servo-agent/engines/`. On macOS and Windows,
+download the build for your platform from
+[Servo's releases](https://github.com/servo/servo/releases) and set `$SERVOSHELL`
+to its `servoshell`. A build from source works too. servo-agent is tested against
+Servo 0.7.0 and Servo's nightly build of 2026-10-22.
 
-Every tool works with stock Servo except `read_native`, which needs the
-`/servo/agent/read` endpoint from the `t3/native-read` branch of
-[our Servo fork](https://github.com/parker-brown-family/servo/tree/t3/native-read).
-On other builds `read_native` answers `{"available": false}` and `read_page`
-does the reading.
+`servo-agent` looks for the engine in this order: `$SERVOSHELL`, then
+`servoshell` on `PATH`, then the newest engine `install-servo` installed, then a
+`servo/` directory beside this repository or beside any directory above the
+installed package, holding an unpacked release or a source build (so a project
+that installs servo-agent, such as
+[servo-reader](https://github.com/parker-brown-family/servo-reader), finds a
+`servo/` beside itself).
 
 ## Quick start
 
@@ -110,9 +113,8 @@ with ServoBrowser(headless=True) as b:
 
 | Tool | Purpose |
 |---|---|
-| `open_url` | Navigate; returns title/url once the new document has committed (`settle` to wait out SPA hydration). |
-| `read_page` | Post-render DOM → clean markdown (the value-add). |
-| `read_native` | In-engine read: `{url, title, text, headings, links}` with no JS round-trip (needs the fork's endpoint, see Install). |
+| `open_url` | Navigate; returns title/url once the new document has committed (`settle` to wait out SPA hydration). Says so if it restarted the engine first (see Known limits). |
+| `read_page` | Post-render DOM → clean markdown (the value-add). A long page comes in parts: the marker at the end of each names the `offset` of the next. |
 | `find` / `wait_for_selector` | Query / wait for elements by CSS selector. |
 | `wait_for_load` | Wait for readyState=complete **and** a quiescent DOM (post-load hydration). |
 | `get_errors` | Best-effort JS error capture (uncaught / rejection / failed resource). |
@@ -120,7 +122,7 @@ with ServoBrowser(headless=True) as b:
 | `scroll` | Scroll to bottom/top, a selector, or a pixel offset. |
 | `extract_links` / `extract_table` | Structured extraction → JSON. |
 | `eval_js` | Run JavaScript, get JSON back. |
-| `screenshot` / `status` | Capture (optional `width`/`height`/`full_page`) / introspect. |
+| `screenshot` / `status` | Capture (optional `width`/`height`/`full_page`, up to 20,000 px; answers with the image's size and whether a full page was cut short) / introspect (engine version, memory). |
 
 ## Wire into an MCP client
 
@@ -169,14 +171,24 @@ Log at `$SERVO_AGENT_LOG` (default `~/.servo-agent/events.jsonl`); set
 - **Pages Servo never finishes loading.** Many real pages stay at
   `readyState: interactive` in Servo because a web font or analytics beacon never
   completes (servo.org itself does). `open_url` returns once such a page's DOM has
-  been still for two seconds and reports `interactive`; the content is readable.
-- **Screenshots of those pages time out** after Servo's 10-second limit
+  been still for half a second and reports `interactive`; the content is readable.
+- **Servo will not take a screenshot while an image is still loading**, and
+  gives up after 10 seconds. servo-agent then drops the images that never
+  finished and tries again, and the answer lists them; a web font or stylesheet
+  that never finishes still leaves no picture, and `screenshot` says so
   ([#3](https://github.com/parker-brown-family/servo-agent/issues/3)).
-- **One session, no saved profile:** no cookies across runs, no tabs, no
-  downloads. Login-gated flows still need a fuller browser.
+- **Servo's memory climbs with every page** it opens in one window: Servo 0.7.0
+  went from 334 MB to 5.3 GB over 100 pages. So servo-agent restarts the engine
+  it started before the next page once it passes 700 MB, which keeps it under
+  1 GB (`SERVO_AGENT_MEMORY_CAP_MB`; 0 turns this off). A restart drops cookies and
+  history, and `open_url` says when one happened
+  ([#14](https://github.com/parker-brown-family/servo-agent/issues/14)).
+- **One session, no saved profile:** every engine gets a temporary profile, so no
+  cookies across runs, no tabs, no downloads. Login-gated flows still need a
+  fuller browser.
 - **`click` → `back()` → `reload()`** in the Python API hits a Servo WebDriver bug
-  and answers 500 ([#5](https://github.com/parker-brown-family/servo-agent/issues/5)).
-  Each call works on its own.
+  and answers 500 ([#5](https://github.com/parker-brown-family/servo-agent/issues/5)),
+  still on Servo 0.7.0 and the 2026-10-22 nightly. Each call works on its own.
 
 ## Use cases
 

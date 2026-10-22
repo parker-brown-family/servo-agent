@@ -141,7 +141,6 @@
       <div class="grid" style="margin-top:1.2rem">
         <div class="card"><h3>Wraps W3C WebDriver</h3><p>The standard automation surface LLMs already understand — no bespoke protocol.</p><div class="tags"><span class="tag">open_url</span><span class="tag">find</span><span class="tag">click</span></div></div>
         <div class="card"><h3>read_page = the value-add</h3><p>Post-render DOM → clean markdown — <b style="color:var(--olive-hi);font-weight:400">16× smaller</b> on a Wikipedia article, 27× on a docs page (measured).</p><div class="tags"><span class="tag">trafilatura</span><span class="tag">noise-strip</span><span class="tag">absolute links</span></div></div>
-        <div class="card"><h3>read_native — in-engine</h3><p>A native <code>/servo/agent/read</code> endpoint, on our Servo fork, returns title/text/headings/links computed inside Servo — no JS round-trip. The payoff of owning the engine.</p><div class="tags"><span class="tag">read_native</span><span class="tag">native</span><span class="tag">no roundtrip</span></div></div>
       </div>
     </section>
 
@@ -163,7 +162,7 @@
       <div class="sec-head"><span class="num">03</span><h2>The <span class="dim">tools</span></h2></div>
       <p class="lede" style="max-width:70ch">Exposed as the <code>servo-agent</code> MCP server — agent-shaped actions over WebDriver:</p>
       <div class="tools">
-        <span class="tag">open_url</span><span class="tag">read_page</span><span class="tag">read_native</span><span class="tag">find</span>
+        <span class="tag">open_url</span><span class="tag">read_page</span><span class="tag">find</span>
         <span class="tag">wait_for_selector</span><span class="tag">wait_for_load</span><span class="tag">click</span><span class="tag">type_text</span>
         <span class="tag">fill_form</span><span class="tag">scroll</span><span class="tag">extract_links</span><span class="tag">extract_table</span>
         <span class="tag">eval_js</span><span class="tag">get_errors</span><span class="tag">screenshot</span><span class="tag">status</span>
@@ -179,8 +178,8 @@
 <pre><span class="c"># install the harness</span>
 uv tool install servo-agent
 
-<span class="c"># build the engine (a Servo checkout beside it)</span>
-./mach build -d --media-stack dummy
+<span class="c"># install Servo's official build (Linux)</span>
+servo-agent install-servo
 
 <span class="c"># prove it end-to-end</span>
 <span class="p">$</span> servo-agent selftest https://news.ycombinator.com</pre>

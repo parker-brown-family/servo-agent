@@ -13,7 +13,7 @@ Other layers can see *that* a tool was called — an MCP client transcript recor
 was good or bad*: which distill extractor fired, the compression ratio, a
 `read_page` that quietly fell back to BeautifulSoup, a WebDriver error, an engine
 respawn, latency. That internal state is exactly what catches bugs and steers
-native (T3) extraction — so the log lives in the server, where it is also
+the distiller — so the log lives in the server, where it is also
 **client-agnostic**: stdio (Claude/Codex), the HTTP daemon, and library use are
 all captured the same way.
 
@@ -52,7 +52,8 @@ One JSON object per line:
 | `engine` | `{external, pid, respawned?}` — engine state at call time |
 | `error` / `error_type` | message + exception class, only when `ok:false` |
 | `extractor` / `ratio` / `in_chars` / `out_chars` / `truncated` | `read_page` only — distillation detail |
-| `native_available` | `read_native` only — whether the engine has `/servo/agent/read` |
+| `offset` / `total_chars` / `next_offset` | `read_page` only — which part of a long page was read, and where the next starts (`null` after the last) |
+| `engine_restarted` / `restart_pss_mb` | `open_url` only — the engine passed its memory cap and was restarted first |
 
 ## Digging it out
 
@@ -87,11 +88,11 @@ A practical loop:
 1. **Watch error rate + the `fallback` extractor count.** A spike in `fallback`
    means trafilatura is losing on real pages — a `read_page` quality signal.
 2. **Watch `ratio_min`.** A near-1.0 ratio is a page where distillation barely
-   helped (chrome-heavy or mis-extracted) — a candidate for the native endpoint.
+   helped (chrome-heavy or mis-extracted) — a candidate for a distiller fix.
 3. **Scan `recent_errors` by `tool`.** Repeated `wait_for_selector` timeouts or
    `click` "element not found" point at selector/timing gaps.
 4. **Turn findings into the [T1 shape](roadmap.md)** and route them to the
-   `servo-agent` project, classifying each as native-extraction (T3), external
+   `servo-agent` project, classifying each as engine (upstream Servo), external
    tooling, or docs/test.
 
 Because the log is plain JSONL, an agent can also read it directly and correlate

@@ -21,20 +21,15 @@ _LOG = EventLog.from_env()
 atexit.register(_BROWSER.shutdown)
 
 
-def build_mcp(host: str | None = None, port: int | None = None):
-    """Construct the FastMCP server. Imported lazily so unit tests need no mcp dep."""
-    from mcp.server.fastmcp import FastMCP
+def build_mcp():
+    """Construct the MCP server. Imported lazily so unit tests need no mcp dep."""
+    from mcp.server.mcpserver import MCPServer
 
-    opts: dict = {}
-    if host:
-        opts["host"] = host
-    if port:
-        opts["port"] = port
-    mcp = FastMCP("servo-agent", **opts)
+    mcp = MCPServer("servo-agent")
 
     # `@logged("tool")` stacks UNDER `@mcp.tool()`: it records timing / success /
     # result size / engine state for each call while preserving the real function
-    # signature (functools.wraps), so FastMCP's tool schema is unchanged.
+    # signature (functools.wraps), so the tool schema MCPServer derives is unchanged.
     logged = make_logger(_BROWSER, _LOG)
 
     @mcp.tool()
@@ -44,36 +39,32 @@ def build_mcp(host: str | None = None, port: int | None = None):
 
         Set `settle=true` to also wait for the DOM to go quiescent (SPA hydration)
         before returning, so the title/content reflect the rendered page.
+
+        If the engine's memory had passed its cap, it is restarted first and the
+        answer carries `engine_restarted`: cookies and history are gone, so a
+        site that needs a login needs it again.
         """
         state = _BROWSER.navigate(url, settle=settle)
-        return json.dumps(
-            {"title": _BROWSER.title(), "url": _BROWSER.current_url(), "readyState": state}
-        )
+        out = {"title": _BROWSER.title(), "url": _BROWSER.current_url(), "readyState": state}
+        if _BROWSER.last_restart:
+            out["engine_restarted"] = _BROWSER.last_restart
+            record_meta(engine_restarted=True, restart_pss_mb=_BROWSER.last_restart["pss_mb"])
+        return json.dumps(out)
 
     @mcp.tool()
     @logged("read_page")
-    def read_page(max_chars: int = 12000) -> str:
-        """Read the CURRENT page as clean, token-efficient markdown (main content)."""
-        md, meta = _distill(_BROWSER.read_html(), _BROWSER.current_url(), max_chars=max_chars)
+    def read_page(max_chars: int = 12000, offset: int = 0) -> str:
+        """Read the CURRENT page as clean, token-efficient markdown (main content).
+
+        A page longer than `max_chars` comes in parts. Each part but the last ends
+        in a marker naming the offset where the next part starts; pass it back as
+        `offset` to read on. Parts never split a link or a code block, and in
+        order they add up to the whole page.
+        """
+        md, meta = _distill(_BROWSER.read_html(), _BROWSER.current_url(),
+                            max_chars=max_chars, offset=offset)
         record_meta(**meta)
         return md
-
-    @mcp.tool()
-    @logged("read_native")
-    def read_native() -> str:
-        """Read the page natively in the engine (fast): url/title/text/headings/links.
-
-        Uses Servo's `/servo/agent/read` extension — no JS round-trip. Returns
-        `{available:false}` if the running engine predates the endpoint; use
-        `read_page` for rich markdown instead.
-        """
-        out = _BROWSER.read_native()
-        record_meta(native_available=out is not None)
-        if out is None:
-            return json.dumps(
-                {"available": False, "note": "engine lacks /servo/agent/read; use read_page"}
-            )
-        return json.dumps(out)
 
     @mcp.tool()
     @logged("find")
@@ -171,11 +162,14 @@ def build_mcp(host: str | None = None, port: int | None = None):
     @logged("screenshot")
     def screenshot(path: str = "servo-shot.png", width: int = 0, height: int = 0,
                    full_page: bool = False) -> str:
-        """Capture a PNG screenshot of the current page. Returns the absolute path.
+        """Capture a PNG screenshot of the current page. Returns its path and size.
 
         Optional `width`/`height` resize the window before capture (0 = leave as
-        is). `full_page=true` grows the window to fit the document for a best-effort
-        whole-page shot (very tall pages are clamped).
+        is). `full_page=true` grows the window to fit the document for a whole-page
+        shot, up to 20,000 px; the answer says whether a taller page was cut short.
+        Servo will not capture while an image is still loading: after its 10 s
+        limit, images that never finished are dropped and the capture retried, and
+        the answer lists them in `dropped_unfinished_images`.
         """
         out = _BROWSER.screenshot(
             path,
@@ -183,7 +177,7 @@ def build_mcp(host: str | None = None, port: int | None = None):
             height=height or None,
             full_page=full_page,
         )
-        return json.dumps({"path": out})
+        return json.dumps({"path": out, **(_BROWSER.last_screenshot or {})})
 
     @mcp.tool()
     @logged("status")
@@ -196,4 +190,8 @@ def build_mcp(host: str | None = None, port: int | None = None):
 
 def serve(transport: str = "stdio", host: str = "127.0.0.1", port: int = 8765) -> None:
     """Run the MCP server. Default stdio (for Claude/Codex); `streamable-http` for a daemon."""
-    build_mcp(host, port).run(transport=transport)
+    mcp = build_mcp()
+    if transport == "streamable-http":
+        mcp.run(transport="streamable-http", host=host, port=port)
+    else:
+        mcp.run(transport="stdio")

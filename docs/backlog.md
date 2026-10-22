@@ -32,13 +32,14 @@ in `tests/test_distill.py`).
   way to see *what* threw (needed to triage engine gaps; see P3).
 - [ ] **Screenshot options** — width/height/full-page (currently fixed 1024-wide).
 
-## P3 — real engine gap (T3)
+## P3 — real engine gap
 - [ ] **`lightpanda.io` (Next.js SPA) crashes to its React error boundary** in
   Servo — a genuine web-platform gap. Needs the console-capture tool (P2) to
   identify the throwing API, then upstream/in-tree work. The *only* finding that
   isn't harness-level.
 
 ## Related
-- Native page-read endpoint design → [`rfc-001-native-read-endpoint.md`](rfc-001-native-read-endpoint.md).
+- Native page-read endpoint design → [`rfc-001-native-read-endpoint.md`](rfc-001-native-read-endpoint.md)
+  (withdrawn 2026-10-22: servo-agent runs on Servo's official builds).
 - Verdict: invest in **read_page polish + waits/diagnostics** first (highest
   leverage, all in this repo); the engine is solid.
