@@ -29,19 +29,20 @@ Tests live in `tests/`:
 on a machine that has only checked out the harness — you don't need a built
 engine to contribute to the pure-Python parts.
 
-To run the integration tests, build or point at a `servoshell`:
+To run the integration tests, install Servo's official build or point at a
+`servoshell`:
 
 ```bash
-# build the sibling servo fork...
-./mach build -d --media-stack dummy
+# install the latest Servo release (Linux)...
+uv run servo-agent install-servo
 # ...or point at an existing binary
 export SERVOSHELL=/path/to/servoshell
 uv run pytest
 ```
 
-Discovery order is `$SERVOSHELL` → `PATH` → a built `servo/` checkout beside
-this repository (or beside any directory above the installed package) — the
-same as the runtime.
+Discovery order is `$SERVOSHELL` → `servoshell` on `PATH` → the newest engine
+`install-servo` installed → a `servo/` directory beside this repository (or
+beside any directory above the installed package) — the same as the runtime.
 
 ## Contributor License Agreement
 

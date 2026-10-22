@@ -6,6 +6,54 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+servo-agent now runs on Servo's official builds. It was built and measured
+against our June 2026 fork of Servo; this release is tested against Servo 0.7.0
+and Servo's nightly build of 2026-10-22.
+
+### Added
+- `servo-agent install-servo [--version X.Y.Z]` downloads Servo's official build
+  for Linux (x86_64 or aarch64), checks it against the SHA-256 the release
+  publishes, and installs it under `~/.local/share/servo-agent/engines/`.
+  `find_servoshell()` looks there after `$SERVOSHELL` and `PATH`, and also finds an
+  unpacked release in a `servo/` directory nearby.
+- `read_page(offset=…)`: a long page comes in parts. Each part ends outside any
+  link or code block, all but the last end in a marker naming the next offset,
+  and in order they add up to the whole page (#12).
+- A memory cap: before each navigation, an engine servo-agent started whose
+  PSS has passed `SERVO_AGENT_MEMORY_CAP_MB` (default 700; 0 = off) is
+  restarted, and `open_url` reports `engine_restarted`. Servo 0.7.0 climbed
+  from 334 MB to 5.3 GB over 100 pages in one window (#14).
+  `bench/memory_climb_bench.py` measures it.
+- `screenshot` answers with the image's size, and for a full page with the page's
+  height and whether the shot was cut short. `status` reports the engine version
+  and its memory.
+
+### Changed
+- The MCP server is written against mcp 2 (`MCPServer`); the dependency is
+  `mcp>=2.3,<3` (#6).
+- Every engine servo-agent starts gets a temporary profile
+  (`--temporary-storage`) instead of sharing `~/.config/servo/default` with every
+  other servoshell on the machine.
+- Engines are stopped through Servo's own `/servo/shutdown` WebDriver route, with
+  SIGTERM and then a kill as the fallback. Servo 0.7 catches SIGTERM and never
+  exits when headless, so every shutdown used to wait five seconds and kill it.
+- A full-page screenshot reaches 20,000 px: the engine is started with a tall
+  `--screen-size`, because Servo's default headless screen cut it at 2,960 px
+  with nothing said.
+- `open_url` returns once a page that never fires `load` has had a still DOM for
+  half a second, not two (#11). `wait_for_load` still gives such a page two.
+- The engine's WebDriver port is polled every 50 ms at start-up, not every 500 ms.
+
+### Fixed
+- A plain download of a page whose table rows have no `<tbody>` (Hacker News,
+  many forums and listings) lost every link in `distill`; the `<tbody>` is now
+  inserted the way a browser's parser does (#13).
+
+### Removed
+- `read_native()` and the `read_native` MCP tool. The `/servo/agent/read`
+  endpoint they called only ever existed on our Servo fork, which is retired;
+  `read_page` does the reading.
+
 ## [0.2.0] - 2026-10-21
 
 ### Added

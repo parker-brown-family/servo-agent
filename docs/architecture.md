@@ -75,7 +75,7 @@ So `navigate(url, timeout=20.0)` starts navigation from script with
    the old document still reports `complete`. A fragment-only change (same page,
    new `#anchor`) never replaces the document and counts as committed at once.
 4. Return when the new document is `complete`, or when it is `interactive` and
-   its DOM (element count, scroll height) has been still for two seconds, or at
+   its DOM (element count, scroll height) has been still for half a second, or at
    the deadline.
 
 It returns the final `readyState`, and raises `TimeoutError` if no new document

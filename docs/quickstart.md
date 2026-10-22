@@ -10,18 +10,23 @@ uv tool install servo-agent
 `git+https://github.com/parker-brown-family/servo-agent` instead. From a clone,
 `uv sync` and prefix commands with `uv run`.)
 
-You also need a built `servoshell`. Either put it on `PATH`, set `$SERVOSHELL`,
-or check out the [Servo](https://github.com/servo/servo) repo next to this one and:
+You also need `servoshell`, Servo's browser binary. On Linux, servo-agent
+installs Servo's official build and checks it against the SHA-256 Servo publishes
+beside it:
 
 ```bash
-./mach build -d --media-stack dummy  # -> target/debug/servoshell
+servo-agent install-servo                  # the latest release
+servo-agent install-servo --version 0.7.0  # or a given one
 ```
 
-`servo-agent` discovers the binary via `$SERVOSHELL` → `PATH` → a built `servo/`
-checkout (`servo/target/{debug,release}/servoshell`) beside this repository or
-beside any directory above the installed package. `read_native` additionally
-needs the `t3/native-read` branch of
-[our Servo fork](https://github.com/parker-brown-family/servo/tree/t3/native-read).
+On macOS and Windows, download your platform's build from
+[Servo's releases](https://github.com/servo/servo/releases) and set `$SERVOSHELL`
+to its `servoshell`; a build from source works too.
+
+`servo-agent` discovers the binary via `$SERVOSHELL` → `servoshell` on `PATH` →
+the newest engine `install-servo` installed → a `servo/` directory (an unpacked
+release or a source build) beside this repository or beside any directory above
+the installed package.
 
 ## Prove the stack
 
@@ -83,6 +88,6 @@ args = ["run", "--project", "/path/to/servo-agent", "servo-agent", "serve"]
 > server. Validate harness edits without a restart via `servo-agent selftest`.
 
 Once wired in, the agent gets the tools listed in the [API reference](api.md):
-`open_url`, `read_page`, `read_native`, `find`, `wait_for_selector`,
+`open_url`, `read_page`, `find`, `wait_for_selector`,
 `wait_for_load`, `get_errors`, `click`, `type_text`, `fill_form`, `scroll`,
 `extract_links`, `extract_table`, `eval_js`, `screenshot`, and `status`.

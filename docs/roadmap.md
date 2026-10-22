@@ -1,9 +1,9 @@
 # Roadmap
 
 `servo-agent` advances on four parallel tracks. The short version: drive real
-work to find gaps (T1), grow the external tooling (T2), and — the headline bet —
-push richer reads **in-tree** inside Servo itself (T3), all while hardening the
-package (T4).
+work to find gaps (T1), grow the external tooling (T2), and harden the package
+(T4). The in-tree track (T3) was withdrawn on 2026-10-22 so that servo-agent runs
+on Servo's official builds.
 
 ## T1 — Drive real tasks
 
@@ -24,9 +24,14 @@ implemented over stock Servo's WebDriver, no engine changes — now includes:
 **Next on this track: multi-tab** support, so an agent can hold several documents
 open at once.
 
-## T3 — In-tree native reads (the research bet)
+## T3 — In-tree native reads (withdrawn 2026-10-22)
 
-**Status: planned — the high-leverage track.** Today `read_page` reconstructs
+**Status: withdrawn.** The endpoint below was built on our Servo fork (June 2026)
+and worked, but it tied servo-agent to a fork that fell 1,654 commits behind
+Servo 0.7.0. servo-agent now runs on Servo's official builds (`servo-agent
+install-servo`), which have no such endpoint, and `read_page` does the reading.
+Upstream Servo has no equivalent as of 0.7.0: headless servoshell does not expose
+its accessibility tree (servo/servo#48488). What was planned: today `read_page` reconstructs
 content from the DOM via `execute_script` roundtrips. The in-tree step does it at
 the source, inside the engine:
 
