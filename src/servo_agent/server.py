@@ -21,20 +21,15 @@ _LOG = EventLog.from_env()
 atexit.register(_BROWSER.shutdown)
 
 
-def build_mcp(host: str | None = None, port: int | None = None):
-    """Construct the FastMCP server. Imported lazily so unit tests need no mcp dep."""
-    from mcp.server.fastmcp import FastMCP
+def build_mcp():
+    """Construct the MCP server. Imported lazily so unit tests need no mcp dep."""
+    from mcp.server.mcpserver import MCPServer
 
-    opts: dict = {}
-    if host:
-        opts["host"] = host
-    if port:
-        opts["port"] = port
-    mcp = FastMCP("servo-agent", **opts)
+    mcp = MCPServer("servo-agent")
 
     # `@logged("tool")` stacks UNDER `@mcp.tool()`: it records timing / success /
     # result size / engine state for each call while preserving the real function
-    # signature (functools.wraps), so FastMCP's tool schema is unchanged.
+    # signature (functools.wraps), so the tool schema MCPServer derives is unchanged.
     logged = make_logger(_BROWSER, _LOG)
 
     @mcp.tool()
@@ -196,4 +191,8 @@ def build_mcp(host: str | None = None, port: int | None = None):
 
 def serve(transport: str = "stdio", host: str = "127.0.0.1", port: int = 8765) -> None:
     """Run the MCP server. Default stdio (for Claude/Codex); `streamable-http` for a daemon."""
-    build_mcp(host, port).run(transport=transport)
+    mcp = build_mcp()
+    if transport == "streamable-http":
+        mcp.run(transport="streamable-http", host=host, port=port)
+    else:
+        mcp.run(transport="stdio")

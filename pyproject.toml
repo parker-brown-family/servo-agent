@@ -24,9 +24,9 @@ dependencies = [
     "trafilatura>=2.1,!=2.2.0",
     "markdownify>=0.11.6",
     "beautifulsoup4>=4.12",
-    # mcp 2 renamed FastMCP to MCPServer and changed its API; the server is
-    # written against 1.x. Below 1.15, tool registration fails on our signatures.
-    "mcp>=1.15,<2",
+    # The server is written against mcp 2's MCPServer (1.x called it FastMCP and
+    # took host and port in the constructor). 2.3 is the oldest 2.x tested.
+    "mcp>=2.3,<3",
 ]
 
 [project.optional-dependencies]
