@@ -3,18 +3,24 @@
 Releases are automated by `.github/workflows/release.yml`, triggered by a version
 tag. PyPI publishing uses [Trusted Publishing][tp] (OIDC) — no API tokens.
 
-## One-time setup (PyPI)
+## PyPI setup (in place)
 
-1. On PyPI, add a **Trusted Publisher** for this repository. Before the project
-   exists this is a *pending* publisher (Account → Publishing), and the first
-   upload through it creates the project:
-   - PyPI project name: `servo-agent`
-   - Owner: `parker-brown-family`, Repository: `servo-agent`
-   - Workflow: `release.yml`, Environment: `pypi`
-2. The GitHub environment `pypi` already exists. It requires approval from
-   @parker-brown-family, and only `v*` tags may deploy to it, so a pushed tag
-   builds and creates the GitHub Release at once, but publishes to PyPI only
-   after someone approves the waiting deployment.
+PyPI trusts this repository's release workflow through a Trusted Publisher,
+registered on 2026-10-21. The first upload through it, 0.2.0, created
+[the project](https://pypi.org/project/servo-agent/). It trusts exactly:
+
+- Owner `parker-brown-family`, repository `servo-agent`
+- Workflow `release.yml`, environment `pypi`
+
+Renaming the workflow file or the environment breaks publishing until the
+publisher is edited to match, in the project's
+[publishing settings](https://pypi.org/manage/project/servo-agent/settings/publishing/)
+on PyPI.
+
+The GitHub environment `pypi` requires approval from @parker-brown-family, and
+only `v*` tags may deploy to it, so a pushed tag builds and creates the GitHub
+Release at once, but publishes to PyPI only after someone approves the waiting
+deployment.
 
 ## Cutting a release
 
