@@ -172,7 +172,10 @@ Log at `$SERVO_AGENT_LOG` (default `~/.servo-agent/events.jsonl`); set
   `readyState: interactive` in Servo because a web font or analytics beacon never
   completes (servo.org itself does). `open_url` returns once such a page's DOM has
   been still for half a second and reports `interactive`; the content is readable.
-- **Screenshots of those pages time out** after Servo's 10-second limit
+- **Servo will not take a screenshot while an image is still loading**, and
+  gives up after 10 seconds. servo-agent then drops the images that never
+  finished and tries again, and the answer lists them; a web font or stylesheet
+  that never finishes still leaves no picture, and `screenshot` says so
   ([#3](https://github.com/parker-brown-family/servo-agent/issues/3)).
 - **Servo's memory climbs with every page** it opens in one window: Servo 0.7.0
   went from 334 MB to 5.3 GB over 100 pages. So servo-agent restarts the engine

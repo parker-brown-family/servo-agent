@@ -143,6 +143,46 @@ def test_screenshot_full_page_taller(browser, tmp_path) -> None:
     assert full_h >= 2000  # ~60 rows * 50px, minus chrome, comfortably exceeded
 
 
+def test_screenshot_of_a_page_whose_image_never_arrives(browser, tmp_path) -> None:
+    # Issue #3: Servo will not capture a page while an image is still loading, and
+    # times out after 10 s. ServoBrowser drops the unfinished image and retries.
+    import http.server
+    import threading
+    import time
+
+    class NeverArrives(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 — the stdlib's name
+            if self.path.startswith("/never/"):
+                time.sleep(60)
+                return
+            body = (b"<!doctype html><html><body><h1>readable</h1>"
+                    b"<img src='/never/arrives.png'></body></html>")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_a):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), NeverArrives)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        browser.navigate(f"http://127.0.0.1:{server.server_address[1]}/page.html")
+        t0 = time.monotonic()
+        shot = tmp_path / "_pending.png"
+        browser.screenshot(str(shot))
+        assert time.monotonic() - t0 < 20
+        assert _png_size(shot.read_bytes())[0] > 0
+        dropped = browser.last_screenshot.get("dropped_unfinished_images")
+        # A Servo that stops waiting on images captures at once and drops nothing.
+        assert dropped is None or dropped[0].endswith("/never/arrives.png")
+    finally:
+        server.shutdown()
+
+
 def test_screenshot_full_page_reaches_the_bottom_of_a_tall_page(browser, tmp_path) -> None:
     # Servo's default headless screen let a window grow to 2,960 px, so a 6,000 px
     # page came back cut in half with nothing said (2026-10-22). The engine is now

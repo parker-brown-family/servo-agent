@@ -45,6 +45,11 @@ and Servo's nightly build of 2026-10-22.
 - The engine's WebDriver port is polled every 50 ms at start-up, not every 500 ms.
 
 ### Fixed
+- A screenshot of a readable page with an image that never arrives timed out
+  (Servo waits for every image, then gives up after 10 s). The unfinished images
+  are now dropped and the capture retried once, `screenshot` lists them, and a
+  page that still can't be captured raises `ScreenshotUnavailable` with the reason
+  (#3).
 - A plain download of a page whose table rows have no `<tbody>` (Hacker News,
   many forums and listings) lost every link in `distill`; the `<tbody>` is now
   inserted the way a browser's parser does (#13).

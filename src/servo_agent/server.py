@@ -167,6 +167,9 @@ def build_mcp():
         Optional `width`/`height` resize the window before capture (0 = leave as
         is). `full_page=true` grows the window to fit the document for a whole-page
         shot, up to 20,000 px; the answer says whether a taller page was cut short.
+        Servo will not capture while an image is still loading: after its 10 s
+        limit, images that never finished are dropped and the capture retried, and
+        the answer lists them in `dropped_unfinished_images`.
         """
         out = _BROWSER.screenshot(
             path,

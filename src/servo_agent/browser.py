@@ -98,6 +98,25 @@ class ServoNotBuilt(RuntimeError):
     """Raised when no servoshell binary can be found."""
 
 
+class ScreenshotUnavailable(RuntimeError):
+    """Servo would not capture the page; the message says what it was waiting on."""
+
+
+# Images that have not finished loading lose their source, so Servo stops waiting
+# for them before a screenshot. Returns the URLs it dropped.
+_DROP_PENDING_IMAGES_JS = r"""
+const dropped = [];
+for (const img of document.images) {
+  if (!img.complete) {
+    dropped.push(img.currentSrc || img.src);
+    img.removeAttribute('srcset');
+    img.removeAttribute('src');
+  }
+}
+return dropped;
+"""
+
+
 class ServoBrowser:
     """One servoshell process + one WebDriver session. Lazy-started, auto-cleaned."""
 
@@ -629,6 +648,11 @@ class ServoBrowser:
 
         `last_screenshot` then holds the PNG's width and height and, for a
         full-page shot, the page's height and whether the shot was cut short.
+
+        Servo will not capture a page while any image is still loading. If it
+        times out on that, the images that never finished are dropped and the
+        capture is tried once more (`last_screenshot["dropped_unfinished_images"]`
+        lists them); if it still cannot, ScreenshotUnavailable says why.
         """
         self.last_screenshot = None
         content_h: int | None = None
@@ -650,9 +674,34 @@ class ServoBrowser:
                 # window) so the bottom row isn't clipped; then clamp.
                 h = min(self._MAX_FULLPAGE_PX, content_h + 80)
             self._cmd("POST", "/window/rect", {"width": w, "height": h})
-        png = base64.b64decode(self._cmd("GET", "/screenshot"))
+        dropped: list[str] = []
+        try:
+            png = base64.b64decode(self._cmd("GET", "/screenshot"))
+        except RuntimeError as exc:
+            # Servo takes a screenshot only once every image on the page has
+            # finished loading, and gives up after 10 s (servo/servo#41764), so
+            # one image that never arrives makes a readable page uncapturable
+            # (issue #3). Such images draw as nothing anyway: drop them, try once
+            # more, and say so.
+            if "Timed out waiting to take screenshot" not in str(exc):
+                raise
+            dropped = self.eval_js(_DROP_PENDING_IMAGES_JS) or []
+            if not dropped:
+                raise ScreenshotUnavailable(
+                    "Servo would not take a screenshot within its 10 s limit, and no "
+                    "unfinished image explains it (a font or stylesheet that never "
+                    f"finishes can); readyState is {self.eval_js('return document.readyState')!r}"
+                ) from exc
+            try:
+                png = base64.b64decode(self._cmd("GET", "/screenshot"))
+            except RuntimeError as again:
+                raise ScreenshotUnavailable(
+                    f"Servo would not take a screenshot even after {len(dropped)} unfinished "
+                    f"image(s) were dropped: {again}") from again
         Path(path).write_bytes(png)
         shot: dict[str, Any] = {"width": None, "height": None}
+        if dropped:
+            shot["dropped_unfinished_images"] = dropped[:20]
         if png[:8] == b"\x89PNG\r\n\x1a\n" and len(png) >= 24:
             shot["width"] = int.from_bytes(png[16:20], "big")
             shot["height"] = int.from_bytes(png[20:24], "big")

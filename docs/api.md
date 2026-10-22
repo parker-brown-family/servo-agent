@@ -6,7 +6,7 @@ function; the CLI and MCP server are thin wrappers.
 ## Top-level imports
 
 ```python
-from servo_agent import ServoBrowser, distill, find_servoshell, ServoNotBuilt
+from servo_agent import ServoBrowser, distill, find_servoshell, ServoNotBuilt, ScreenshotUnavailable
 ```
 
 | Name | Kind | Summary |
@@ -15,6 +15,7 @@ from servo_agent import ServoBrowser, distill, find_servoshell, ServoNotBuilt
 | `distill` | function | Rendered HTML → clean, token-efficient markdown. |
 | `find_servoshell` | function | Locate the engine binary, or `None`. |
 | `ServoNotBuilt` | exception | Raised when no binary can be found. |
+| `ScreenshotUnavailable` | exception | Servo would not capture the page; the message says what it waited on. |
 
 ## `ServoBrowser`
 
@@ -83,7 +84,7 @@ restarted, and `last_restart` describes it (cookies and history are lost). Servo
 | Method | Signature | Returns | Notes |
 |---|---|---|---|
 | `fill_form` | `fill_form(fields, submit=None)` | `None` | `fields`: `{selector: value}`; optionally clicks `submit`. |
-| `screenshot` | `screenshot(path, width=None, height=None, full_page=False)` | `str` (abs path) | Writes a PNG; `last_screenshot` then holds `{width, height}` and, for a full page, `{page_height, cut_short}`. |
+| `screenshot` | `screenshot(path, width=None, height=None, full_page=False)` | `str` (abs path) | Writes a PNG; `last_screenshot` then holds `{width, height}` and, for a full page, `{page_height, cut_short}`. If Servo times out waiting on images that never finish, they are dropped and the capture retried (`dropped_unfinished_images`); otherwise `ScreenshotUnavailable` says what Servo was waiting on. |
 | `status` | `status()` | `dict` | `{binary, engine_version, started, headless, port, url, memory_mb, memory_cap_mb}`. |
 
 ## `distill`
@@ -153,5 +154,5 @@ lazily-started browser backs all of them and is torn down at process exit.
 | `extract_links` | `extract_links(selector="a")` | `[{text, href}, …]` |
 | `extract_table` | `extract_table(selector="table")` | `[{…}, …]` |
 | `eval_js` | `eval_js(script)` | `{result}` |
-| `screenshot` | `screenshot(path="servo-shot.png", width=0, height=0, full_page=False)` | `{path, width, height}`, plus `{page_height, cut_short}` for a full page |
+| `screenshot` | `screenshot(path="servo-shot.png", width=0, height=0, full_page=False)` | `{path, width, height}`, plus `{page_height, cut_short}` for a full page and `dropped_unfinished_images` when Servo was waiting on images that never finished |
 | `status` | `status()` | engine/session status dict |

@@ -8,8 +8,11 @@ Public API:
 """
 from __future__ import annotations
 
-from .browser import ServoBrowser, ServoNotBuilt, find_servoshell
+from .browser import ScreenshotUnavailable, ServoBrowser, ServoNotBuilt, find_servoshell
 from .distill import distill
 
-__all__ = ["ServoBrowser", "ServoNotBuilt", "find_servoshell", "distill", "__version__"]
+__all__ = [
+    "ServoBrowser", "ServoNotBuilt", "ScreenshotUnavailable", "find_servoshell", "distill",
+    "__version__",
+]
 __version__ = "0.2.0"

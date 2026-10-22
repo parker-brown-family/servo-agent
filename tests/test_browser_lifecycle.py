@@ -520,6 +520,74 @@ def test_full_page_screenshot_reports_its_size_and_any_cut(monkeypatch, tmp_path
     assert shot["cut_short"] is cut
 
 
+_SERVO_TIMEOUT = ("GET /session/s/screenshot -> 500 timeout: Timed out waiting to take "
+                  "screenshot. Test likely didn't finish.")
+
+
+def _capturing_browser(monkeypatch, tmp_path, *, fails: int, pending: list[str]):
+    """A browser whose screenshot times out `fails` times, with `pending` unfinished images."""
+    import base64
+
+    b = _browser_with_binary(tmp_path)
+    b.sid, b.proc = "s", _FakeProc(alive=True)
+    calls = {"screenshot": 0, "dropped": False}
+
+    def fake_cmd(method, path, body=None):
+        assert path == "/screenshot", path
+        calls["screenshot"] += 1
+        if calls["screenshot"] <= fails:
+            raise RuntimeError(_SERVO_TIMEOUT)
+        return base64.b64encode(_png(1024, 740)).decode()
+
+    def fake_eval(script, args=None):
+        if "img.complete" in script:
+            calls["dropped"] = True
+            return list(pending)
+        return "interactive"
+
+    monkeypatch.setattr(b, "_cmd", fake_cmd)
+    monkeypatch.setattr(b, "eval_js", fake_eval)
+    return b, calls
+
+
+def test_screenshot_drops_images_that_never_finish_and_tries_again(monkeypatch, tmp_path) -> None:
+    """Issue #3: Servo will not capture while any image is still loading."""
+    b, calls = _capturing_browser(monkeypatch, tmp_path, fails=1,
+                                  pending=["http://site.example/never.png"])
+
+    b.screenshot(str(tmp_path / "shot.png"))
+
+    assert calls == {"screenshot": 2, "dropped": True}
+    assert b.last_screenshot["dropped_unfinished_images"] == ["http://site.example/never.png"]
+
+
+def test_screenshot_with_nothing_to_drop_says_what_servo_waits_on(monkeypatch, tmp_path) -> None:
+    b, calls = _capturing_browser(monkeypatch, tmp_path, fails=1, pending=[])
+
+    with pytest.raises(browser_mod.ScreenshotUnavailable, match="font or stylesheet"):
+        b.screenshot(str(tmp_path / "shot.png"))
+    assert calls["screenshot"] == 1
+
+
+def test_screenshot_that_fails_again_is_classified(monkeypatch, tmp_path) -> None:
+    b, _calls = _capturing_browser(monkeypatch, tmp_path, fails=2, pending=["http://x/a.png"])
+
+    with pytest.raises(browser_mod.ScreenshotUnavailable, match="1 unfinished image"):
+        b.screenshot(str(tmp_path / "shot.png"))
+
+
+def test_other_screenshot_errors_pass_through(monkeypatch, tmp_path) -> None:
+    b = _browser_with_binary(tmp_path)
+    b.sid, b.proc = "s", _FakeProc(alive=True)
+
+    def broken(*_a, **_k):
+        raise RuntimeError("GET /session/s/screenshot -> 404 no such window")
+
+    monkeypatch.setattr(b, "_cmd", broken)
+    with pytest.raises(RuntimeError, match="no such window"):
+        b.screenshot(str(tmp_path / "shot.png"))
+
+
 def test_engine_search_order(monkeypatch, tmp_path) -> None:
     """$SERVOSHELL, then PATH, then an installed official build, then a servo/ nearby."""
     paths = {name: tmp_path / name / "servoshell" for name in ("env", "path", "installed")}
