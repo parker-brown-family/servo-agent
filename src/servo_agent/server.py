@@ -39,11 +39,17 @@ def build_mcp():
 
         Set `settle=true` to also wait for the DOM to go quiescent (SPA hydration)
         before returning, so the title/content reflect the rendered page.
+
+        If the engine's memory had passed its cap, it is restarted first and the
+        answer carries `engine_restarted`: cookies and history are gone, so a
+        site that needs a login needs it again.
         """
         state = _BROWSER.navigate(url, settle=settle)
-        return json.dumps(
-            {"title": _BROWSER.title(), "url": _BROWSER.current_url(), "readyState": state}
-        )
+        out = {"title": _BROWSER.title(), "url": _BROWSER.current_url(), "readyState": state}
+        if _BROWSER.last_restart:
+            out["engine_restarted"] = _BROWSER.last_restart
+            record_meta(engine_restarted=True, restart_pss_mb=_BROWSER.last_restart["pss_mb"])
+        return json.dumps(out)
 
     @mcp.tool()
     @logged("read_page")
@@ -59,23 +65,6 @@ def build_mcp():
                             max_chars=max_chars, offset=offset)
         record_meta(**meta)
         return md
-
-    @mcp.tool()
-    @logged("read_native")
-    def read_native() -> str:
-        """Read the page natively in the engine (fast): url/title/text/headings/links.
-
-        Uses Servo's `/servo/agent/read` extension — no JS round-trip. Returns
-        `{available:false}` if the running engine predates the endpoint; use
-        `read_page` for rich markdown instead.
-        """
-        out = _BROWSER.read_native()
-        record_meta(native_available=out is not None)
-        if out is None:
-            return json.dumps(
-                {"available": False, "note": "engine lacks /servo/agent/read; use read_page"}
-            )
-        return json.dumps(out)
 
     @mcp.tool()
     @logged("find")
@@ -173,11 +162,11 @@ def build_mcp():
     @logged("screenshot")
     def screenshot(path: str = "servo-shot.png", width: int = 0, height: int = 0,
                    full_page: bool = False) -> str:
-        """Capture a PNG screenshot of the current page. Returns the absolute path.
+        """Capture a PNG screenshot of the current page. Returns its path and size.
 
         Optional `width`/`height` resize the window before capture (0 = leave as
-        is). `full_page=true` grows the window to fit the document for a best-effort
-        whole-page shot (very tall pages are clamped).
+        is). `full_page=true` grows the window to fit the document for a whole-page
+        shot, up to 20,000 px; the answer says whether a taller page was cut short.
         """
         out = _BROWSER.screenshot(
             path,
@@ -185,7 +174,7 @@ def build_mcp():
             height=height or None,
             full_page=full_page,
         )
-        return json.dumps({"path": out})
+        return json.dumps({"path": out, **(_BROWSER.last_screenshot or {})})
 
     @mcp.tool()
     @logged("status")

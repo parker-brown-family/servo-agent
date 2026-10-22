@@ -6,7 +6,7 @@ import asyncio
 from servo_agent.server import build_mcp
 
 EXPECTED_TOOLS = {
-    "open_url", "read_page", "read_native", "find", "wait_for_selector",
+    "open_url", "read_page", "find", "wait_for_selector",
     "wait_for_load", "get_errors", "click", "type_text", "fill_form", "scroll",
     "extract_links", "extract_table", "eval_js", "screenshot", "status",
 }

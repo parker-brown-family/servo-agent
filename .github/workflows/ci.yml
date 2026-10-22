@@ -43,17 +43,48 @@ jobs:
       - name: Tests (unit; integration auto-skips without a servoshell binary)
         run: uv run --no-sync pytest -v
 
-  # Full integration tests need a built servoshell. Servo's own build is heavy,
-  # so we gate it behind a manual dispatch / self-hosted runner rather than
-  # building the engine on every push.
+  # The integration tests drive a real engine: Servo's official Linux build,
+  # installed the way a user installs it. Pushes and PRs pin the release the
+  # suite was last checked against; the weekly run takes Servo's newest release,
+  # so a Servo that breaks us turns this red without a code change here.
   integration:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, servo]
+    runs-on: ubuntu-latest
+    env:
+      SERVO_VERSION: "0.7.0"
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
       - run: uv sync --extra dev --locked
-      - name: Integration tests
+
+      # Servo links GStreamer (the "bad" plugins too), libunwind and EGL; servo.org
+      # lists the first two as the usual missing libraries. Mesa supplies the
+      # software EGL a runner without a GPU renders with.
+      - name: Servo's runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
+            libgstreamer-plugins-bad1.0-0 libgstreamer-gl1.0-0 \
+            libgudev-1.0-0 libunwind8 libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1 \
+            libwayland-egl1 libx11-xcb1 fonts-dejavu-core
+
+      - name: Install Servo's official build
         env:
-          SERVOSHELL: ${{ env.SERVOSHELL }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            uv run --no-sync servo-agent install-servo
+          else
+            uv run --no-sync servo-agent install-servo --version "$SERVO_VERSION"
+          fi
+          shell=$(ls ~/.local/share/servo-agent/engines/servo-*/servoshell | tail -1)
+          if ldd "$shell" | grep 'not found'; then exit 1; fi
+          "$shell" --version
+
+      - name: Integration tests
         run: uv run --no-sync pytest -v -m integration
