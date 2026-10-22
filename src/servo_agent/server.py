@@ -47,9 +47,16 @@ def build_mcp():
 
     @mcp.tool()
     @logged("read_page")
-    def read_page(max_chars: int = 12000) -> str:
-        """Read the CURRENT page as clean, token-efficient markdown (main content)."""
-        md, meta = _distill(_BROWSER.read_html(), _BROWSER.current_url(), max_chars=max_chars)
+    def read_page(max_chars: int = 12000, offset: int = 0) -> str:
+        """Read the CURRENT page as clean, token-efficient markdown (main content).
+
+        A page longer than `max_chars` comes in parts. Each part but the last ends
+        in a marker naming the offset where the next part starts; pass it back as
+        `offset` to read on. Parts never split a link or a code block, and in
+        order they add up to the whole page.
+        """
+        md, meta = _distill(_BROWSER.read_html(), _BROWSER.current_url(),
+                            max_chars=max_chars, offset=offset)
         record_meta(**meta)
         return md
 

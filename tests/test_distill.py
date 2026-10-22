@@ -5,9 +5,12 @@ import re
 
 from servo_agent.distill import (
     _clean_markdown,
+    _distill,
     _fallback_markdown,
+    _insert_implied_tbody,
     _prepare_html,
     _recover_empty_anchors,
+    _unsplittable,
     distill,
 )
 
@@ -52,8 +55,11 @@ def test_distill_returns_markdown(sample_html: str) -> None:
 def test_distill_truncates() -> None:
     big = "<main>" + "<p>lorem ipsum dolor sit amet </p>" * 2000 + "</main>"
     md = distill(big, max_chars=200)
-    assert len(md) <= 200 + 60
-    assert "truncated" in md
+    part, marker = md.split("\n\n…[", 1)
+    assert len(part) <= 200
+    # servo-reader 0.4 recognises truncation by this prefix and an ending of "chars]".
+    assert marker.startswith("truncated at ") and md.endswith("chars]")
+    assert re.search(r"the next part starts at offset \d+ of \d+ chars\]$", md)
 
 
 def test_distill_handles_empty() -> None:
@@ -447,3 +453,102 @@ def test_clean_is_noop_on_plain_prose() -> None:
 
 def test_clean_handles_empty_string() -> None:
     assert _clean_markdown("") == ""
+
+
+# --------------------------------------------------------------------------- #
+# Issue #12 — a long page is read in parts, in order, from an offset.
+# --------------------------------------------------------------------------- #
+_NEXT = re.compile(
+    r"\n\n…\[truncated at \d+ chars; the next part starts at offset (\d+) of \d+ chars\]$"
+)
+
+
+def _long_page() -> str:
+    paras = "".join(
+        f'<p>Paragraph {i} explains <a href="https://example.org/docs/page-{i}">the page '
+        f"numbered {i}</a> in enough words that the section reads as running prose.</p>"
+        + (f"<pre><code>step_{i}()\nstep_{i}_again()</code></pre>" if i % 7 == 0 else "")
+        for i in range(120)
+    )
+    return f"<html><body><article><h1>A long page</h1>{paras}</article></body></html>"
+
+
+def _read_in_parts(html: str, max_chars: int) -> list[str]:
+    parts, offset = [], 0
+    while True:
+        md, meta = _distill(html, "https://example.org/long", max_chars=max_chars, offset=offset)
+        m = _NEXT.search(md)
+        parts.append(md[: m.start()] if m else md)
+        if not m:
+            assert meta["next_offset"] is None
+            return parts
+        assert meta["next_offset"] == int(m[1]) > offset
+        offset = int(m[1])
+
+
+def test_read_in_parts_adds_up_to_the_whole_page() -> None:
+    html = _long_page()
+    whole, meta = _distill(html, "https://example.org/long", max_chars=10**9)
+    parts = _read_in_parts(html, max_chars=2000)
+    assert len(parts) > 3
+    assert "".join(parts) == whole
+    assert all(len(p) <= 2000 for p in parts)
+    assert meta["total_chars"] == len(whole) and meta["next_offset"] is None
+
+
+def test_parts_never_end_inside_a_link_or_code_block() -> None:
+    html = _long_page()
+    whole, _ = _distill(html, "https://example.org/long", max_chars=10**9)
+    spans = _unsplittable(whole)
+    assert any(whole[s:e].startswith("`") or "```" in whole[s:e] for s, e in spans)
+    cut = 0
+    for part in _read_in_parts(html, max_chars=1500)[:-1]:
+        cut += len(part)
+        assert not any(s < cut < e for s, e in spans), whole[cut - 40: cut + 40]
+
+
+def test_a_page_under_the_cap_reads_the_same_as_before() -> None:
+    html = _article("<p>A short page with one paragraph of content.</p>")
+    assert distill(html, url=_WIKI) == distill(html, url=_WIKI, offset=0)
+    assert "truncated" not in distill(html, url=_WIKI)
+
+
+def test_offset_past_the_end_says_so_and_negative_offsets_are_refused() -> None:
+    html = _long_page()
+    md, meta = _distill(html, "https://example.org/long", offset=10**8)
+    assert "past the end" in md and meta["next_offset"] is None
+    try:
+        _distill(html, "https://example.org/long", offset=-1)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a negative offset must be refused")
+
+
+# --------------------------------------------------------------------------- #
+# Bug 7 (issue #13) — rows served without <tbody> lose every link on a plain
+# download; a browser inserts the <tbody>, so the Servo path kept them.
+# --------------------------------------------------------------------------- #
+def test_plain_download_of_a_table_listing_keeps_every_story_link() -> None:
+    from fixtures.table_listing import STORIES, listing_html
+
+    md = distill(listing_html(), url="https://news.example/", max_chars=10**9)
+    for i in range(1, STORIES + 1):
+        assert f"[Story number {i} about rendering engines](https://example.org/story/{i})" in md
+
+
+def test_implied_tbody_wraps_bare_rows_and_leaves_sections_alone() -> None:
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(
+        "<table><thead><tr><th>h</th></tr></thead><tr><td>1</td></tr>\n<tr><td>2</td></tr>"
+        "<tfoot><tr><td>f</td></tr></tfoot></table>"
+        "<table><tbody><tr><td>already</td></tr></tbody></table>",
+        "html.parser",
+    )
+    assert _insert_implied_tbody(soup)
+    first, second = soup.find_all("table", recursive=False)
+    assert [c.name for c in first.children if c.name] == ["thead", "tbody", "tfoot"]
+    assert len(first.tbody.find_all("tr")) == 2
+    assert len(second.find_all("tbody")) == 1
+    assert not _insert_implied_tbody(soup)  # nothing left to wrap
