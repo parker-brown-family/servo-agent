@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-22
+
 servo-agent now runs on Servo's official builds. It was built and measured
 against our June 2026 fork of Servo; this release is tested against Servo 0.7.0
 and Servo's nightly build of 2026-10-22.
@@ -139,6 +141,7 @@ link below points at the commit.
 - pytest suite (unit + auto-skipping engine integration) and CI.
 - Product page (`/pc` kiosk, `/info`).
 
-[Unreleased]: https://github.com/parker-brown-family/servo-agent/compare/v0.2.0...main
+[Unreleased]: https://github.com/parker-brown-family/servo-agent/compare/v0.3.0...main
+[0.3.0]: https://github.com/parker-brown-family/servo-agent/releases/tag/v0.3.0
 [0.2.0]: https://github.com/parker-brown-family/servo-agent/releases/tag/v0.2.0
 [0.1.0]: https://github.com/parker-brown-family/servo-agent/tree/ea40ccf
