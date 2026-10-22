@@ -2,14 +2,13 @@
 
 ## Install
 
-`servo-agent` is not on PyPI yet; install it from the repository:
-
 ```bash
-uv tool install git+https://github.com/parker-brown-family/servo-agent
+uv tool install servo-agent
 ```
 
-(`pipx install git+https://github.com/parker-brown-family/servo-agent` works too.
-From a clone, `uv sync` and prefix commands with `uv run`.)
+(`pipx install servo-agent` works too. For unreleased changes on `main`, install
+`git+https://github.com/parker-brown-family/servo-agent` instead. From a clone,
+`uv sync` and prefix commands with `uv run`.)
 
 You also need a built `servoshell`. Either put it on `PATH`, set `$SERVOSHELL`,
 or check out the [Servo](https://github.com/servo/servo) repo next to this one and:

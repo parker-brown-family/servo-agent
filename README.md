@@ -55,15 +55,14 @@ call never floods an agent's context.
 
 ## Install
 
-`servo-agent` is not on PyPI yet. Install it from this repository:
-
 ```bash
-uv tool install git+https://github.com/parker-brown-family/servo-agent
+uv tool install servo-agent
 ```
 
-`pipx install git+https://github.com/parker-brown-family/servo-agent` works too.
-To work from a clone instead, run `uv sync` in it and put `uv run` in front of the
-commands below.
+`pipx install servo-agent` works too. For changes on `main` that are not released
+yet, install from this repository with
+`uv tool install git+https://github.com/parker-brown-family/servo-agent`. To work
+from a clone, run `uv sync` in it and put `uv run` in front of the commands below.
 
 You also need a built `servoshell`, Servo's browser binary. Put it on `PATH`, set
 `$SERVOSHELL`, or check out [Servo](https://github.com/servo/servo) next to this
