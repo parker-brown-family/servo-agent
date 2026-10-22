@@ -15,4 +15,4 @@ __all__ = [
     "ServoBrowser", "ServoNotBuilt", "ScreenshotUnavailable", "find_servoshell", "distill",
     "__version__",
 ]
-__version__ = "0.2.0"
+__version__ = "0.3.0"
